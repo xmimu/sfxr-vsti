@@ -125,6 +125,17 @@ cmake --build build --target SfxrRenderTest
 ./build/SfxrRenderTest_artefacts/Release/SfxrRenderTest
 ```
 
+## 捐赠
+
+如果这个插件对你有帮助，欢迎自愿捐赠支持开发：
+
+<div align="center">
+  <img src="docs/donate-wechat.png" alt="微信" width="200"/>
+  <img src="docs/donate-alipay.png" alt="支付宝" width="200"/>
+</div>
+
+<p align="center">微信（左） · 支付宝（右）</p>
+
 ## 许可
 
 本项目遵循 **GNU Affero General Public License v3（AGPLv3）** 开源许可。合成算法移植自 [sfxr](http://www.drpetter.se/project_sfxr.html)，其 MIT 许可声明予以保留。
