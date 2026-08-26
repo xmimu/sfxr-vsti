@@ -53,6 +53,12 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
+      - name: Remove intermediate build files
+        shell: bash
+        run: |
+          find build/SfxrVsti_artefacts/Release -type f \
+            \( -name "*.a" -o -name "*.lib" -o -name "*.exp" \) -delete
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
