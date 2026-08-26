@@ -32,23 +32,59 @@ sfxr-vsti/
 │       ├── SfxrPresets.*   # 7 类生成器 + RANDOMIZE + MUTATE
 │       └── SfxrPresetFile.*# .sfs 文件读写
 ├── tests/RenderTest.cpp    # 离线渲染测试（验证 DSP）
-├── scripts/build.sh        # 一键编译 + 安装（macOS/Linux）
+├── scripts/build.sh        # 构建脚本（macOS/Linux）
+├── scripts/build_windows.bat # 构建脚本（Windows）
 └── reference/              # 上游 sfxr-sdl-1.2.1 源码（已 gitignore）
 ```
 
-## 构建
+## 下载
+
+从 [GitHub Releases](../../releases) 下载对应平台的预编译产物（由 GitHub Actions 自动构建）：
+
+| 平台 | 文件 | 包含格式 |
+|------|------|----------|
+| macOS | `SfxrVsti-macOS.zip` | VST3 + AU + Standalone |
+| Windows | `SfxrVsti-Windows.zip` | VST3 + Standalone |
+| Linux | `SfxrVsti-Linux.zip` | VST3 + Standalone |
+
+## 安装
+
+### macOS
+
+解压后复制到用户插件目录：
+
+- VST3 → `~/Library/Audio/Plug-Ins/VST3/`
+- AU → `~/Library/Audio/Plug-Ins/Components/`
+
+### Windows
+
+将 `.vst3` 复制到 `C:\Program Files\Common Files\VST3\`（需管理员权限）。
+
+### Linux
+
+将 `.vst3` 复制到 `~/.vst3/`。
+
+## 从源码构建
 
 依赖：CMake 3.24+、C++17 编译器。JUCE 8.0.15 通过 CMake `FetchContent` 在配置阶段自动下载（需联网）。
+
+macOS / Linux：
+
+```bash
+./scripts/build.sh
+```
+
+Windows：
+
+```bat
+scripts\build_windows.bat
+```
+
+或手动：
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-```
-
-或使用脚本：
-
-```bash
-./scripts/build.sh
 ```
 
 ### 各平台产物
@@ -59,18 +95,7 @@ cmake --build build --parallel
 | Windows | VST3 + Standalone | `build/SfxrVsti_artefacts/Release/` |
 | Linux | VST3 + Standalone | `build/SfxrVsti_artefacts/Release/` |
 
-Windows 需 MSVC 或 MinGW；Linux 需 ALSA/JACK 开发库（JUCE 处理链接）。
-
-## 安装
-
-`build.sh` 会在 macOS 上自动安装到用户插件目录：
-
-- VST3 → `~/Library/Audio/Plug-Ins/VST3/`
-- AU → `~/Library/Audio/Plug-Ins/Components/`
-
-其他平台手动复制：
-- Windows VST3 → `C:\Program Files\Common Files\VST3\`
-- Linux VST3 → `~/.vst3/`
+Windows 需 MSVC 或 MinGW；Linux 需 ALSA/JACK/X11 等开发库（见 `.github/workflows/build.yml` 的完整依赖列表）。
 
 ## 使用
 

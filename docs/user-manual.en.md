@@ -23,6 +23,14 @@ This manual is aimed at plugin users, covering installation, the interface, para
 
 ## 1. Installation
 
+### Download
+
+Download pre-built binaries for your platform from [GitHub Releases](../../releases), extract, then install:
+
+- macOS → `SfxrVsti-macOS.zip` (VST3 + AU + Standalone)
+- Windows → `SfxrVsti-Windows.zip` (VST3 + Standalone)
+- Linux → `SfxrVsti-Linux.zip` (VST3 + Standalone)
+
 ### Requirements
 
 - macOS / Windows / Linux
@@ -30,7 +38,7 @@ This manual is aimed at plugin users, covering installation, the interface, para
 
 ### macOS
 
-The `build.sh` script installs the plugins automatically into the user plugin folders:
+Copy the extracted plugins to the user plugin folders:
 
 | Format | Location |
 |--------|----------|
@@ -41,7 +49,7 @@ Restart your host (or trigger a plugin rescan) and "SfxrVsti" will appear in the
 
 ### Windows
 
-Copy `SfxrVsti.vst3` to `C:\Program Files\Common Files\VST3\`.
+Copy `SfxrVsti.vst3` to `C:\Program Files\Common Files\VST3\` (requires Administrator privileges).
 
 ### Linux
 

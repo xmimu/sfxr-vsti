@@ -6,10 +6,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- GitHub Actions 三平台构建（macOS/Windows/Linux）+ tag 触发 Release 自动发布预编译产物
+- Windows 构建脚本 `scripts/build_windows.bat`
+- 捐赠二维码（`docs/donate-wechat.png` / `docs/donate-alipay.png`）
+
 ### Changed
 
 - 许可从 MIT 变更为 **AGPLv3**（因使用 JUCE 免费许可）；sfxr 的 MIT 声明移至 `THIRD_PARTY_NOTICES.md`
 - 新增用户手册（`docs/user-manual.md` / `docs/user-manual.en.md`）
+- README 与用户手册增加「下载预编译产物」与「从源码构建」说明
 
 ## [1.0.0] - 2026-08-27
 

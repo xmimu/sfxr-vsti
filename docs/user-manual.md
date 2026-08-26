@@ -23,6 +23,14 @@
 
 ## 1. 安装
 
+### 下载
+
+从 [GitHub Releases](../../releases) 下载对应平台的预编译产物，解压后安装：
+
+- macOS → `SfxrVsti-macOS.zip`（VST3 + AU + Standalone）
+- Windows → `SfxrVsti-Windows.zip`（VST3 + Standalone）
+- Linux → `SfxrVsti-Linux.zip`（VST3 + Standalone）
+
 ### 系统要求
 
 - macOS / Windows / Linux
@@ -30,7 +38,7 @@
 
 ### macOS
 
-构建脚本 `build.sh` 会自动将插件安装到用户插件目录：
+将解压出的插件复制到用户插件目录：
 
 | 格式 | 安装位置 |
 |------|----------|
@@ -41,7 +49,7 @@
 
 ### Windows
 
-将 `SfxrVsti.vst3` 复制到 `C:\Program Files\Common Files\VST3\`。
+将 `SfxrVsti.vst3` 复制到 `C:\Program Files\Common Files\VST3\`（需管理员权限）。
 
 ### Linux
 

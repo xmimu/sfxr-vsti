@@ -32,23 +32,59 @@ sfxr-vsti/
 │       ├── SfxrPresets.*   # 7 generators + RANDOMIZE + MUTATE
 │       └── SfxrPresetFile.*# .sfs file read/write
 ├── tests/RenderTest.cpp    # offline render test (DSP verification)
-├── scripts/build.sh        # one-shot build + install (macOS/Linux)
+├── scripts/build.sh        # build script (macOS/Linux)
+├── scripts/build_windows.bat # build script (Windows)
 └── reference/              # upstream sfxr-sdl-1.2.1 source (gitignored)
 ```
 
-## Building
+## Download
+
+Download pre-built binaries for your platform from [GitHub Releases](../../releases) (built automatically by GitHub Actions):
+
+| Platform | File | Formats |
+|----------|------|---------|
+| macOS | `SfxrVsti-macOS.zip` | VST3 + AU + Standalone |
+| Windows | `SfxrVsti-Windows.zip` | VST3 + Standalone |
+| Linux | `SfxrVsti-Linux.zip` | VST3 + Standalone |
+
+## Installing
+
+### macOS
+
+Extract and copy to the user plugin folders:
+
+- VST3 → `~/Library/Audio/Plug-Ins/VST3/`
+- AU → `~/Library/Audio/Plug-Ins/Components/`
+
+### Windows
+
+Copy the `.vst3` to `C:\Program Files\Common Files\VST3\` (requires Administrator privileges).
+
+### Linux
+
+Copy the `.vst3` to `~/.vst3/`.
+
+## Building from source
 
 Requirements: CMake 3.24+, a C++17 compiler. JUCE 8.0.15 is downloaded automatically by CMake's `FetchContent` at configure time (network required).
+
+macOS / Linux:
+
+```bash
+./scripts/build.sh
+```
+
+Windows:
+
+```bat
+scripts\build_windows.bat
+```
+
+Or manually:
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-```
-
-Or use the script:
-
-```bash
-./scripts/build.sh
 ```
 
 ### Artifacts per platform
@@ -59,18 +95,7 @@ Or use the script:
 | Windows | VST3 + Standalone | `build/SfxrVsti_artefacts/Release/` |
 | Linux | VST3 + Standalone | `build/SfxrVsti_artefacts/Release/` |
 
-Windows requires MSVC or MinGW; Linux requires the ALSA/JACK development libraries (linked by JUCE).
-
-## Installing
-
-`build.sh` installs automatically to the user plugin folders on macOS:
-
-- VST3 → `~/Library/Audio/Plug-Ins/VST3/`
-- AU → `~/Library/Audio/Plug-Ins/Components/`
-
-On other platforms copy manually:
-- Windows VST3 → `C:\Program Files\Common Files\VST3\`
-- Linux VST3 → `~/.vst3/`
+Windows requires MSVC or MinGW; Linux requires the ALSA/JACK/X11 development libraries (see the full dependency list in `.github/workflows/build.yml`).
 
 ## Usage
 

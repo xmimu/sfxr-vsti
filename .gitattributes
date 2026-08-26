@@ -1,0 +1,10 @@
+# Normalize line endings for cross-platform checkout.
+# Windows batch files must use CRLF.
+*.bat text eol=crlf
+
+# Shell scripts and everything else use LF.
+*.sh  text eol=lf
+*.md  text eol=lf
+*.h   text eol=lf
+*.cpp text eol=lf
+*.txt text eol=lf
