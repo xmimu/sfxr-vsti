@@ -19,9 +19,18 @@ private:
     void buildInterface();
     void addSectionHeader (const juce::String& text, int x, int y);
     juce::Slider* addSlider (const juce::String& paramID, const juce::String& label,
-                             int x, int y, int barWidth, bool bipolar);
+                             int x, int y, int barWidth);
     void addWaveButton (const juce::String& text, int value, int x, int y);
     void updateWaveButtons();
+
+    // Takes ownership of a freshly created widget and shows it.
+    template <typename ComponentType>
+    ComponentType* own (ComponentType* c)
+    {
+        widgets.add (c);
+        addAndMakeVisible (c);
+        return c;
+    }
 
     void randomize();
     void mutate();
@@ -35,6 +44,11 @@ private:
     juce::Random rng;
 
     std::unique_ptr<juce::LookAndFeel> lookAndFeel;
+
+    // Owns every widget created by the addXxx() helpers below. Declared before
+    // the attachments so that it is destroyed *after* them -- an attachment
+    // dereferences its Slider/Button in its destructor.
+    juce::OwnedArray<juce::Component> widgets;
 
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> buttonAttachments;

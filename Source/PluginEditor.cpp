@@ -265,34 +265,33 @@ void SfxrVstiAudioProcessorEditor::parameterChanged (const juce::String& id, flo
 
 void SfxrVstiAudioProcessorEditor::addSectionHeader (const juce::String& text, int x, int y)
 {
-    auto* l = new juce::Label();
+    auto* l = own (new juce::Label());
     l->setText (text, juce::dontSendNotification);
     l->setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
     l->setColour (juce::Label::textColourId, kTextDark);
     l->setBounds (x, y, 220, 18);
-    addAndMakeVisible (l);
 }
 
+// The look and feel decides whether to draw a bipolar centre marker from the
+// slider's own range, so no extra flag is needed here.
 juce::Slider* SfxrVstiAudioProcessorEditor::addSlider (const juce::String& paramID,
                                                        const juce::String& label,
-                                                       int x, int y, int barWidth, bool)
+                                                       int x, int y, int barWidth)
 {
     constexpr int labelWidth = 96;
     constexpr int rowHeight  = 18;
 
-    auto* lbl = new juce::Label();
+    auto* lbl = own (new juce::Label());
     lbl->setText (label, juce::dontSendNotification);
     lbl->setFont (juce::Font (juce::FontOptions (11.0f)));
     lbl->setColour (juce::Label::textColourId, kTextDark);
     lbl->setBounds (x, y + 1, labelWidth, rowHeight);
     lbl->setJustificationType (juce::Justification::centredLeft);
-    addAndMakeVisible (lbl);
 
-    auto* s = new juce::Slider();
+    auto* s = own (new juce::Slider());
     s->setSliderStyle (juce::Slider::LinearHorizontal);
     s->setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     s->setBounds (x + labelWidth, y, barWidth, rowHeight);
-    addAndMakeVisible (s);
 
     sliderAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         apvts, paramID, *s));
@@ -302,7 +301,7 @@ juce::Slider* SfxrVstiAudioProcessorEditor::addSlider (const juce::String& param
 
 void SfxrVstiAudioProcessorEditor::addWaveButton (const juce::String& text, int value, int x, int y)
 {
-    auto* b = new juce::ToggleButton (text);
+    auto* b = own (new juce::ToggleButton (text));
     b->setColour (juce::ToggleButton::tickColourId, kBarFill);
     b->setColour (juce::ToggleButton::tickDisabledColourId, kButtonBg);
     b->setBounds (x, y, 104, 22);
@@ -313,7 +312,6 @@ void SfxrVstiAudioProcessorEditor::addWaveButton (const juce::String& text, int 
         if (auto* p = apvts.getParameter (ParamID::wave_type))
             p->setValueNotifyingHost (p->convertTo0to1 ((float) value));
     };
-    addAndMakeVisible (b);
 
     if (value >= 0 && value < 4)
         waveButtons[value] = b;
@@ -335,15 +333,13 @@ void SfxrVstiAudioProcessorEditor::buildInterface()
     addWaveButton ("SINEWAVE",   2, 362, 8);
     addWaveButton ("NOISE",      3, 468, 8);
 
-    auto* monoButton = new juce::ToggleButton ("MONO");
+    auto* monoButton = own (new juce::ToggleButton ("MONO"));
     monoButton->setBounds (580, 8, 80, 22);
-    addAndMakeVisible (monoButton);
     buttonAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         apvts, ParamID::mono, *monoButton));
 
-    auto* oneShotButton = new juce::ToggleButton ("ONE-SHOT");
+    auto* oneShotButton = own (new juce::ToggleButton ("ONE-SHOT"));
     oneShotButton->setBounds (668, 8, 90, 22);
-    addAndMakeVisible (oneShotButton);
     buttonAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         apvts, ParamID::one_shot, *oneShotButton));
 
@@ -354,19 +350,17 @@ void SfxrVstiAudioProcessorEditor::buildInterface()
     for (int i = 0; i < (int) PresetCategory::Count; i++)
     {
         const auto cat = (PresetCategory) i;
-        auto* b = new juce::TextButton (presetCategoryName (cat));
+        auto* b = own (new juce::TextButton (presetCategoryName (cat)));
         b->setBounds (12, gy, 110, 22);
         b->onClick = [this, cat] { generateCategory (cat); };
-        addAndMakeVisible (b);
         gy += 24;
     }
 
     auto addActionButton = [this, &gy] (const juce::String& text, std::function<void()> fn)
     {
-        auto* b = new juce::TextButton (text);
+        auto* b = own (new juce::TextButton (text));
         b->setBounds (12, gy, 110, 22);
-        b->onClick = fn;
-        addAndMakeVisible (b);
+        b->onClick = std::move (fn);
         gy += 24;
     };
 
@@ -380,46 +374,46 @@ void SfxrVstiAudioProcessorEditor::buildInterface()
     addSectionHeader ("MANUAL SETTINGS", 140, 40);
 
     addSectionHeader ("ENVELOPE", 140, 68);
-    addSlider (ParamID::env_attack,  "ATTACK TIME",   140, 88, 130, false);
-    addSlider (ParamID::env_sustain, "SUSTAIN TIME",  140, 108, 130, false);
-    addSlider (ParamID::env_punch,   "SUSTAIN PUNCH", 140, 128, 130, false);
-    addSlider (ParamID::env_decay,   "DECAY TIME",    140, 148, 130, false);
+    addSlider (ParamID::env_attack,  "ATTACK TIME",   140, 88, 130);
+    addSlider (ParamID::env_sustain, "SUSTAIN TIME",  140, 108, 130);
+    addSlider (ParamID::env_punch,   "SUSTAIN PUNCH", 140, 128, 130);
+    addSlider (ParamID::env_decay,   "DECAY TIME",    140, 148, 130);
 
     addSectionHeader ("VIBRATO", 140, 176);
-    addSlider (ParamID::vib_strength, "DEPTH", 140, 196, 130, false);
-    addSlider (ParamID::vib_speed,    "SPEED", 140, 216, 130, false);
-    addSlider (ParamID::vib_delay,    "DELAY", 140, 236, 130, false);
+    addSlider (ParamID::vib_strength, "DEPTH", 140, 196, 130);
+    addSlider (ParamID::vib_speed,    "SPEED", 140, 216, 130);
+    addSlider (ParamID::vib_delay,    "DELAY", 140, 236, 130);
 
     addSectionHeader ("FREQUENCY", 384, 68);
-    addSlider (ParamID::base_freq,  "START FREQ",  384, 88, 130, false);
-    addSlider (ParamID::freq_limit, "MIN FREQ",    384, 108, 130, false);
-    addSlider (ParamID::freq_ramp,  "SLIDE",       384, 128, 130, true);
-    addSlider (ParamID::freq_dramp, "DELTA SLIDE", 384, 148, 130, true);
+    addSlider (ParamID::base_freq,  "START FREQ",  384, 88, 130);
+    addSlider (ParamID::freq_limit, "MIN FREQ",    384, 108, 130);
+    addSlider (ParamID::freq_ramp,  "SLIDE",       384, 128, 130);
+    addSlider (ParamID::freq_dramp, "DELTA SLIDE", 384, 148, 130);
 
     addSectionHeader ("SQUARE DUTY", 384, 176);
-    addSlider (ParamID::duty,      "DUTY",      384, 196, 130, false);
-    addSlider (ParamID::duty_ramp, "DUTY SWEEP", 384, 216, 130, true);
+    addSlider (ParamID::duty,      "DUTY",      384, 196, 130);
+    addSlider (ParamID::duty_ramp, "DUTY SWEEP", 384, 216, 130);
 
     addSectionHeader ("REPEAT", 384, 244);
-    addSlider (ParamID::repeat_speed, "REPEAT SPEED", 384, 264, 130, false);
+    addSlider (ParamID::repeat_speed, "REPEAT SPEED", 384, 264, 130);
 
     addSectionHeader ("ARPEGGIO", 628, 68);
-    addSlider (ParamID::arp_mod,   "CHANGE AMOUNT", 628, 88, 130, true);
-    addSlider (ParamID::arp_speed, "CHANGE SPEED",  628, 108, 130, false);
+    addSlider (ParamID::arp_mod,   "CHANGE AMOUNT", 628, 88, 130);
+    addSlider (ParamID::arp_speed, "CHANGE SPEED",  628, 108, 130);
 
     addSectionHeader ("PHASER", 628, 136);
-    addSlider (ParamID::pha_offset, "OFFSET", 628, 156, 130, true);
-    addSlider (ParamID::pha_ramp,   "SWEEP",  628, 176, 130, true);
+    addSlider (ParamID::pha_offset, "OFFSET", 628, 156, 130);
+    addSlider (ParamID::pha_ramp,   "SWEEP",  628, 176, 130);
 
     addSectionHeader ("FILTERS", 628, 204);
-    addSlider (ParamID::lpf_freq,      "LP CUTOFF",    628, 224, 130, false);
-    addSlider (ParamID::lpf_ramp,      "LP SWEEP",     628, 244, 130, true);
-    addSlider (ParamID::lpf_resonance, "LP RESONANCE", 628, 264, 130, false);
-    addSlider (ParamID::hpf_freq,      "HP CUTOFF",    628, 284, 130, false);
-    addSlider (ParamID::hpf_ramp,      "HP SWEEP",     628, 304, 130, true);
+    addSlider (ParamID::lpf_freq,      "LP CUTOFF",    628, 224, 130);
+    addSlider (ParamID::lpf_ramp,      "LP SWEEP",     628, 244, 130);
+    addSlider (ParamID::lpf_resonance, "LP RESONANCE", 628, 264, 130);
+    addSlider (ParamID::hpf_freq,      "HP CUTOFF",    628, 284, 130);
+    addSlider (ParamID::hpf_ramp,      "HP SWEEP",     628, 304, 130);
 
     addSectionHeader ("VOLUME", 140, 440);
-    addSlider (ParamID::master_vol, "OUTPUT LEVEL", 384, 440, 240, false);
+    addSlider (ParamID::master_vol, "OUTPUT LEVEL", 384, 440, 240);
 
     // ---- waveform display ----
     waveformScope = std::make_unique<WaveformScopeComponent> (audioProcessor);
