@@ -310,7 +310,11 @@ void SfxrVstiAudioProcessorEditor::addWaveButton (const juce::String& text, int 
     b->onClick = [this, value]
     {
         if (auto* p = apvts.getParameter (ParamID::wave_type))
+        {
+            p->beginChangeGesture();
             p->setValueNotifyingHost (p->convertTo0to1 ((float) value));
+            p->endChangeGesture();
+        }
     };
 
     if (value >= 0 && value < 4)

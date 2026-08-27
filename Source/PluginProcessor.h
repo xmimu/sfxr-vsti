@@ -42,7 +42,7 @@ public:
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    double getTailLengthSeconds() const override;
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -59,6 +59,9 @@ public:
 
     // Reads the current parameter values into an SfxrParams struct.
     SfxrParams readParams() const;
+
+    // Reads a toggle parameter (avoids an implicit float -> bool conversion).
+    bool readBoolParam (const juce::String& id) const;
 
     // Pushes an SfxrParams struct into the parameter tree (for preset buttons).
     void applyParams (const SfxrParams& p);

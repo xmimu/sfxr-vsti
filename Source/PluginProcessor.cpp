@@ -94,6 +94,15 @@ bool SfxrVstiAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
     return true;
 }
 
+double SfxrVstiAudioProcessor::getTailLengthSeconds() const
+{
+    // After a note-off the decay stage is the longest thing that can still be
+    // sounding: env_decay^2 * 100000 samples, calibrated at 44.1 kHz. Reporting
+    // 0 here makes hosts cut the tail short when bouncing or freezing.
+    const float decay = apvts.getRawParameterValue (ParamID::env_decay)->load();
+    return (double) decay * (double) decay * 100000.0 / 44100.0;
+}
+
 SfxrParams SfxrVstiAudioProcessor::readParams() const
 {
     SfxrParams p;
@@ -135,12 +144,23 @@ SfxrParams SfxrVstiAudioProcessor::readParams() const
     return p;
 }
 
+bool SfxrVstiAudioProcessor::readBoolParam (const juce::String& id) const
+{
+    return apvts.getRawParameterValue (id)->load() >= 0.5f;
+}
+
 void SfxrVstiAudioProcessor::applyParams (const SfxrParams& p)
 {
     auto setParam = [this] (const juce::String& id, float value)
     {
         if (auto* param = apvts.getParameter (id))
+        {
+            // Wrap in a gesture so hosts treat the whole preset change as a
+            // single edit rather than a stream of unrelated automation writes.
+            param->beginChangeGesture();
             param->setValueNotifyingHost (param->convertTo0to1 (value));
+            param->endChangeGesture();
+        }
     };
 
     setParam (ParamID::wave_type,  (float) p.wave_type);
@@ -182,12 +202,12 @@ void SfxrVstiAudioProcessor::playPreview()
     // Sync the engine with the latest parameters before triggering, otherwise
     // the preview would play with the previous block's (stale) parameters.
     engine.setParams (readParams());
-    engine.setMono (apvts.getRawParameterValue (ParamID::mono)->load());
-    engine.setOneShot (apvts.getRawParameterValue (ParamID::one_shot)->load());
+    engine.setMono (readBoolParam (ParamID::mono));
+    engine.setOneShot (readBoolParam (ParamID::one_shot));
 
     engine.noteOn (69, 1.0f);
 
-    if (!apvts.getRawParameterValue (ParamID::one_shot)->load())
+    if (! readBoolParam (ParamID::one_shot))
         startTimer (400);
 }
 
@@ -238,8 +258,8 @@ void SfxrVstiAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     // Read current parameters into the engine.
     engine.setParams (readParams());
-    engine.setMono (apvts.getRawParameterValue (ParamID::mono)->load());
-    engine.setOneShot (apvts.getRawParameterValue (ParamID::one_shot)->load());
+    engine.setMono (readBoolParam (ParamID::mono));
+    engine.setOneShot (readBoolParam (ParamID::one_shot));
 
     // Route MIDI through the keyboard state so that incoming notes both
     // trigger the engine and light up the on-screen keyboard.
