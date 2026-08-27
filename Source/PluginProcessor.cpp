@@ -159,17 +159,17 @@ bool SfxrVstiAudioProcessor::readBoolParam (const juce::String& id) const
     return apvts.getRawParameterValue (id)->load() >= 0.5f;
 }
 
-void SfxrVstiAudioProcessor::applyParams (const SfxrParams& p)
+void SfxrVstiAudioProcessor::applyParams (const SfxrParams& p, bool withGesture)
 {
-    auto setParam = [this] (const juce::String& id, float value)
+    auto setParam = [this, withGesture] (const juce::String& id, float value)
     {
         if (auto* param = apvts.getParameter (id))
         {
-            // Wrap in a gesture so hosts treat the whole preset change as a
-            // single edit rather than a stream of unrelated automation writes.
-            param->beginChangeGesture();
+            // The gesture makes hosts treat the whole preset change as a single
+            // edit rather than a stream of unrelated automation writes.
+            if (withGesture) param->beginChangeGesture();
             param->setValueNotifyingHost (param->convertTo0to1 (value));
-            param->endChangeGesture();
+            if (withGesture) param->endChangeGesture();
         }
     };
 
@@ -205,6 +205,38 @@ void SfxrVstiAudioProcessor::applyParams (const SfxrParams& p)
     setParam (ParamID::arp_mod,   p.arp_mod);
 
     setParam (ParamID::master_vol, p.sound_vol);
+}
+
+const juce::String SfxrVstiAudioProcessor::getProgramName (int index)
+{
+    if (index <= 0)
+        return "Init";
+
+    const auto category = (PresetCategory) (index - 1);
+    return index - 1 < (int) PresetCategory::Count ? presetCategoryName (category) : juce::String();
+}
+
+void SfxrVstiAudioProcessor::setCurrentProgram (int index)
+{
+    if (index < 0 || index >= getNumPrograms())
+        return;
+
+    currentProgram = index;
+
+    SfxrParams p;
+
+    if (index > 0)
+    {
+        // Seeded from the program index, so selecting a program always gives the
+        // same sound. The generators are randomised by nature, but a host may
+        // call this while restoring a session -- if the result varied, that
+        // would silently overwrite the user's saved parameters with a different
+        // sound. RANDOMIZE and the category buttons in the editor stay random.
+        juce::Random rng (0x5f3759df + index);
+        generatePreset (p, (PresetCategory) (index - 1), rng);
+    }
+
+    applyParams (p, /*withGesture*/ false);
 }
 
 void SfxrVstiAudioProcessor::playPreview()
@@ -324,8 +356,10 @@ bool SfxrVstiAudioProcessor::hasEditor() const
 void SfxrVstiAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
-    std::unique_ptr<juce::XmlElement> xml (state.createXml());
-    copyXmlToBinary (*xml, destData);
+    state.setProperty ("currentProgram", currentProgram, nullptr);
+
+    if (std::unique_ptr<juce::XmlElement> xml { state.createXml() })
+        copyXmlToBinary (*xml, destData);
 }
 
 void SfxrVstiAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
@@ -333,5 +367,14 @@ void SfxrVstiAudioProcessor::setStateInformation (const void* data, int sizeInBy
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
 
     if (xml != nullptr && xml->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    {
+        const auto state = juce::ValueTree::fromXml (*xml);
+
+        // Restore the parameters directly. Deliberately *not* via
+        // setCurrentProgram: the saved parameters are the truth, and the program
+        // index is only remembered so the host's menu shows the right entry.
+        apvts.replaceState (state);
+        currentProgram = juce::jlimit (0, getNumPrograms() - 1,
+                                       (int) state.getProperty ("currentProgram", 0));
+    }
 }

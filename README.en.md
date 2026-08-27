@@ -15,7 +15,8 @@ A JUCE instrument plugin built on the [sfxr](http://www.drpetter.se/project_sfxr
 - **All 24 sfxr parameters** are exposed to the host (note: parameters are latched at note-on, as in the original sfxr, so automation does not alter a note that is already sounding)
 - **Classic sfxr look**: beige/orange sliders, 7 preset generators + RANDOMIZE / MUTATE
 - **On-screen MIDI keyboard** (full 88 keys, keys outside the usable range greyed out, root note highlighted) + real-time waveform oscilloscope
-- **.sfs file compatibility**: reads/writes the original sfxr parameter files (version 102)
+- **.sfs file compatibility**: reads/writes the original sfxr parameter files (version 102), with parameters kept as continuous floats rather than quantised
+- **8 factory programs**: Init plus one per generator category, exposed in the host's preset menu (deterministic -- the same program always gives the same sound)
 
 ## Directory structure
 

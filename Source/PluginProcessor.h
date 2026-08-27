@@ -45,10 +45,12 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override;
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    // Factory programs: an init sound plus one per sfxr generator category.
+    // These are deterministic on purpose -- see setCurrentProgram().
+    int getNumPrograms() override { return 1 + (int) PresetCategory::Count; }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int index) override;
+    const juce::String getProgramName (int index) override;
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -65,7 +67,9 @@ public:
     bool readBoolParam (const juce::String& id) const;
 
     // Pushes an SfxrParams struct into the parameter tree (for preset buttons).
-    void applyParams (const SfxrParams& p);
+    // withGesture wraps the writes in begin/endChangeGesture, which is what a
+    // user-initiated change should do; a host program change should not.
+    void applyParams (const SfxrParams& p, bool withGesture = true);
 
     // Used by the editor's PLAY button.
     void playPreview();
@@ -84,6 +88,7 @@ private:
     static constexpr int kPreviewNote = 69;
 
     juce::AudioProcessorValueTreeState apvts;
+    int currentProgram = 0;
     SfxrEngine engine;
     juce::MidiKeyboardState keyboardState;
 
