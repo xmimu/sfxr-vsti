@@ -45,6 +45,12 @@ void SfxrVoice::noteOff()
         released = true;
 }
 
+void SfxrVoice::stop() noexcept
+{
+    playing  = false;
+    released = true;
+}
+
 // Every magic constant in the original sfxr is calibrated for 44100 Hz. To get
 // identical output at any other sample rate each one has to be rescaled
 // according to what it actually represents:

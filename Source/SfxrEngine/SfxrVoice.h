@@ -36,6 +36,9 @@ public:
 
     void noteOff();
 
+    // Silences the voice immediately (used when the host re-prepares us).
+    void stop() noexcept;
+
     // Seeds the internal noise generator (used by the engine to decorrelate voices).
     void setSeed (int seed) { rng = juce::Random (seed); }
 

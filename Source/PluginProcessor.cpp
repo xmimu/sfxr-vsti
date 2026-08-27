@@ -71,13 +71,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout SfxrVstiAudioProcessor::crea
     return layout;
 }
 
-void SfxrVstiAudioProcessor::prepareToPlay (double sampleRate, int)
+void SfxrVstiAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    engine.prepare (sampleRate);
+    engine.prepare (sampleRate, samplesPerBlock);
+
+    // Drop anything the oscilloscope still holds from the previous run so the
+    // display doesn't start with stale audio.
+    scopeFifo.reset();
 }
 
 void SfxrVstiAudioProcessor::releaseResources()
 {
+    engine.reset();
 }
 
 bool SfxrVstiAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
