@@ -6,8 +6,10 @@
 #include "SfxrEngine/SfxrPresets.h"
 #include "SfxrEngine/SfxrPresetFile.h"
 
-// Valid MIDI note range for triggering sounds (matches the on-screen keyboard's
-// enabled keys; notes outside this range are ignored).
+// Notes that will actually trigger a sound. Pitch is transposed relative to the
+// Start Frequency parameter, so this is a usable-range convention rather than a
+// hard technical limit -- it matches the keys the on-screen keyboard enables, and
+// notes outside it are ignored so that the UI and host MIDI behave identically.
 namespace SfxrNoteRange
 {
     constexpr int minNote = 36; // C2
@@ -20,7 +22,6 @@ namespace SfxrNoteRange
 }
 
 class SfxrVstiAudioProcessor : public juce::AudioProcessor,
-                               public juce::MidiKeyboardStateListener,
                                private juce::Timer
 {
 public:
@@ -73,12 +74,14 @@ public:
     void pushScope (const float* data, int numSamples);
     int readScope (float* dest, int maxSamples);
 
-    // ---- MidiKeyboardStateListener ----
-    void handleNoteOn (juce::MidiKeyboardState*, int channel, int note, float velocity) override;
-    void handleNoteOff (juce::MidiKeyboardState*, int channel, int note, float velocity) override;
-
 private:
     void timerCallback() override;
+
+    // Applies one MIDI message to the engine. Audio thread only.
+    void handleMidiEvent (const juce::MidiMessage& msg);
+
+    // The note the PLAY SOUND button auditions: the root of the transposition.
+    static constexpr int kPreviewNote = 69;
 
     juce::AudioProcessorValueTreeState apvts;
     SfxrEngine engine;

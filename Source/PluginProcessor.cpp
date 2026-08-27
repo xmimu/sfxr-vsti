@@ -10,12 +10,10 @@ SfxrVstiAudioProcessor::SfxrVstiAudioProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createLayout())
 {
-    keyboardState.addListener (this);
 }
 
 SfxrVstiAudioProcessor::~SfxrVstiAudioProcessor()
 {
-    keyboardState.removeListener (this);
 }
 
 const juce::String SfxrVstiAudioProcessor::getName() const
@@ -32,38 +30,62 @@ juce::AudioProcessorValueTreeState::ParameterLayout SfxrVstiAudioProcessor::crea
     layout.add (std::make_unique<AudioParameterChoice> (ParamID::wave_type, "Waveform",
                                                        StringArray { "Square", "Sawtooth", "Sine", "Noise" }, 0));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_attack,  "Attack Time",    0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_sustain, "Sustain Time",   0.0f, 1.0f, 0.3f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_punch,   "Sustain Punch",  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_decay,   "Decay Time",     0.0f, 1.0f, 0.4f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_attack, "Attack Time",
+                                                  0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_sustain, "Sustain Time",
+                                                  0.0f, 1.0f, 0.3f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_punch, "Sustain Punch",
+                                                  0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_decay, "Decay Time",
+                                                  0.0f, 1.0f, 0.4f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::base_freq,   "Start Frequency", 0.0f, 1.0f, 0.3f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::freq_limit,  "Min Frequency",   0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::freq_ramp,   "Slide",          -1.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::freq_dramp,  "Delta Slide",    -1.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::base_freq, "Start Frequency",
+                                                  0.0f, 1.0f, 0.3f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::freq_limit, "Min Frequency",
+                                                  0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::freq_ramp, "Slide",
+                                                  -1.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::freq_dramp, "Delta Slide",
+                                                  -1.0f, 1.0f, 0.0f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::vib_strength, "Vibrato Depth",  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::vib_speed,    "Vibrato Speed",  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::vib_delay,    "Vibrato Delay",  0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::vib_strength, "Vibrato Depth",
+                                                  0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::vib_speed, "Vibrato Speed",
+                                                  0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::vib_delay, "Vibrato Delay",
+                                                  0.0f, 1.0f, 0.0f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::arp_mod,    "Change Amount", -1.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::arp_speed,  "Change Speed",   0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::arp_mod, "Change Amount",
+                                                  -1.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::arp_speed, "Change Speed",
+                                                  0.0f, 1.0f, 0.0f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::duty,      "Square Duty",    0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::duty_ramp, "Duty Sweep",     -1.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::duty, "Square Duty",
+                                                  0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::duty_ramp, "Duty Sweep",
+                                                  -1.0f, 1.0f, 0.0f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::repeat_speed, "Repeat Speed", 0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::repeat_speed, "Repeat Speed",
+                                                  0.0f, 1.0f, 0.0f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::pha_offset, "Phaser Offset", -1.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::pha_ramp,   "Phaser Sweep",  -1.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::pha_offset, "Phaser Offset",
+                                                  -1.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::pha_ramp, "Phaser Sweep",
+                                                  -1.0f, 1.0f, 0.0f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::lpf_freq,      "LP Cutoff",        0.0f, 1.0f, 1.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::lpf_ramp,      "LP Cutoff Sweep", -1.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::lpf_resonance, "LP Resonance",     0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::hpf_freq,      "HP Cutoff",        0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::hpf_ramp,      "HP Cutoff Sweep", -1.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::lpf_freq, "LP Cutoff",
+                                                  0.0f, 1.0f, 1.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::lpf_ramp, "LP Cutoff Sweep",
+                                                  -1.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::lpf_resonance, "LP Resonance",
+                                                  0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::hpf_freq, "HP Cutoff",
+                                                  0.0f, 1.0f, 0.0f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::hpf_ramp, "HP Cutoff Sweep",
+                                                  -1.0f, 1.0f, 0.0f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::master_vol, "Output Level", 0.0f, 1.0f, 0.5f));
+    layout.add (std::make_unique<AudioParameterFloat> (ParamID::master_vol, "Output Level",
+                                                  0.0f, 1.0f, 0.5f));
 
     layout.add (std::make_unique<AudioParameterBool> (ParamID::mono,     "Mono",    false));
     layout.add (std::make_unique<AudioParameterBool> (ParamID::one_shot, "One-Shot", true));
@@ -199,13 +221,11 @@ void SfxrVstiAudioProcessor::applyParams (const SfxrParams& p)
 
 void SfxrVstiAudioProcessor::playPreview()
 {
-    // Sync the engine with the latest parameters before triggering, otherwise
-    // the preview would play with the previous block's (stale) parameters.
-    engine.setParams (readParams());
-    engine.setMono (readBoolParam (ParamID::mono));
-    engine.setOneShot (readBoolParam (ParamID::one_shot));
-
-    engine.noteOn (69, 1.0f);
+    // Queue the note on the keyboard state rather than calling into the engine.
+    // processBlock merges these into the incoming MIDI, so the note is triggered
+    // on the audio thread with the parameter values of that block -- and the
+    // on-screen keyboard lights up for free.
+    keyboardState.noteOn (1, kPreviewNote, 1.0f);
 
     if (! readBoolParam (ParamID::one_shot))
         startTimer (400);
@@ -214,7 +234,7 @@ void SfxrVstiAudioProcessor::playPreview()
 void SfxrVstiAudioProcessor::timerCallback()
 {
     stopTimer();
-    engine.noteOff (69);
+    keyboardState.noteOff (1, kPreviewNote, 0.0f);
 }
 
 void SfxrVstiAudioProcessor::pushScope (const float* data, int numSamples)
@@ -240,49 +260,67 @@ int SfxrVstiAudioProcessor::readScope (float* dest, int maxSamples)
     return block.blockSize1 + block.blockSize2;
 }
 
-void SfxrVstiAudioProcessor::handleNoteOn (juce::MidiKeyboardState*, int, int note, float velocity)
-{
-    if (SfxrNoteRange::contains (note))
-        engine.noteOn (note, velocity);
-}
-
-void SfxrVstiAudioProcessor::handleNoteOff (juce::MidiKeyboardState*, int, int note, float)
-{
-    if (SfxrNoteRange::contains (note))
-        engine.noteOff (note);
-}
-
 void SfxrVstiAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    const int numSamples = buffer.getNumSamples();
+    buffer.clear();
 
     // Read current parameters into the engine.
     engine.setParams (readParams());
     engine.setMono (readBoolParam (ParamID::mono));
     engine.setOneShot (readBoolParam (ParamID::one_shot));
 
-    // Route MIDI through the keyboard state so that incoming notes both
-    // trigger the engine and light up the on-screen keyboard.
+    // Merge anything the on-screen keyboard has queued into the incoming MIDI
+    // and update the key highlighting. Doing it this way means UI notes take the
+    // same path as host notes and the engine is only ever touched from here.
+    keyboardState.processNextMidiBuffer (midiMessages, 0, numSamples, true);
+
+    // Render in segments split on the MIDI event positions, so note timing is
+    // sample-accurate instead of being quantised to the block size.
+    int position = 0;
+
     for (const auto metadata : midiMessages)
     {
-        const auto msg = metadata.getMessage();
-        if (msg.isAllNotesOff() || msg.isAllSoundOff())
-        {
-            keyboardState.allNotesOff (0);
-            engine.allNotesOff();
-        }
-        else
-        {
-            keyboardState.processNextMidiEvent (msg);
-        }
-    }
-    midiMessages.clear();
+        const int eventPos = juce::jlimit (0, numSamples, metadata.samplePosition);
 
-    engine.process (buffer);
+        if (eventPos > position)
+        {
+            engine.render (buffer, position, eventPos - position);
+            position = eventPos;
+        }
+
+        handleMidiEvent (metadata.getMessage());
+    }
+
+    engine.render (buffer, position, numSamples - position);
+
+    midiMessages.clear();
 
     // Feed the oscilloscope from the first output channel.
     if (buffer.getNumChannels() > 0)
-        pushScope (buffer.getReadPointer (0), buffer.getNumSamples());
+        pushScope (buffer.getReadPointer (0), numSamples);
+}
+
+void SfxrVstiAudioProcessor::handleMidiEvent (const juce::MidiMessage& msg)
+{
+    // Note-ons and note-offs are filtered together, so a note that was never
+    // started cannot be released either. All-notes-off is never filtered.
+    if (msg.isNoteOn())
+    {
+        if (SfxrNoteRange::contains (msg.getNoteNumber()))
+            engine.noteOn (msg.getNoteNumber(), msg.getFloatVelocity());
+    }
+    else if (msg.isNoteOff())
+    {
+        if (SfxrNoteRange::contains (msg.getNoteNumber()))
+            engine.noteOff (msg.getNoteNumber());
+    }
+    else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+    {
+        engine.allNotesOff();
+    }
 }
 
 juce::AudioProcessorEditor* SfxrVstiAudioProcessor::createEditor()
@@ -305,6 +343,7 @@ void SfxrVstiAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 void SfxrVstiAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
+
     if (xml != nullptr && xml->hasTagName (apvts.state.getType()))
         apvts.replaceState (juce::ValueTree::fromXml (*xml));
 }

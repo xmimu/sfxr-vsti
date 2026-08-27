@@ -17,6 +17,7 @@
 #include <JuceHeader.h>
 #include "../Source/SfxrEngine/SfxrParams.h"
 #include "../Source/SfxrEngine/SfxrVoice.h"
+#include "../Source/SfxrEngine/SfxrEngine.h"
 #include "../Source/SfxrEngine/SfxrPresets.h"
 #include "../Source/SfxrEngine/SfxrPresetFile.h"
 
@@ -590,6 +591,146 @@ static void testPresetFileRoundTrip()
 
 
 //==============================================================================
+static void testSampleAccurateNoteOnset()
+{
+    section ("note onset is sample-accurate within a block");
+
+    const double sr = 44100.0;
+    const int    blockSize = 512;
+
+    // Mirrors what processBlock does: render up to the event, apply it, then
+    // render the rest of the block.
+    auto onsetIndexForEventAt = [&] (int eventPos)
+    {
+        SfxrEngine engine;
+        engine.prepare (sr, blockSize);
+
+        SfxrParams p = toneParams();
+        p.wave_type = 0;         // square: non-zero immediately
+        p.base_freq = 0.5f;
+        engine.setParams (p);
+        engine.setOneShot (true);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        buffer.clear();
+
+        engine.render (buffer, 0, eventPos);
+        engine.noteOn (69, 1.0f);
+        engine.render (buffer, eventPos, blockSize - eventPos);
+
+        const float* out = buffer.getReadPointer (0);
+        for (int i = 0; i < blockSize; i++)
+            if (std::abs (out[i]) > 1.0e-6f)
+                return i;
+
+        return -1;
+    };
+
+    for (int eventPos : { 0, 1, 37, 200, 511 })
+    {
+        const int onset = onsetIndexForEventAt (eventPos);
+        std::printf ("  event at %3d -> first non-zero sample %3d\n", eventPos, onset);
+        check (onset == eventPos, "onset for an event at sample " + juce::String (eventPos)
+                                  + " (got " + juce::String (onset) + ")");
+    }
+
+    // render() must be additive and must not touch anything outside its range.
+    {
+        SfxrEngine engine;
+        engine.prepare (sr, blockSize);
+        engine.setParams (toneParams());
+        engine.setOneShot (true);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        buffer.clear();
+        for (int i = 0; i < blockSize; i++)
+            buffer.setSample (0, i, 1.0f);
+
+        engine.noteOn (69, 1.0f);
+        engine.render (buffer, 100, 200);
+
+        bool outsideUntouched = true;
+        for (int i = 0; i < 100; i++)
+            if (buffer.getSample (0, i) != 1.0f) outsideUntouched = false;
+        for (int i = 300; i < blockSize; i++)
+            if (buffer.getSample (0, i) != 1.0f) outsideUntouched = false;
+
+        check (outsideUntouched, "render() leaves samples outside [start, start+n) alone");
+    }
+}
+
+static void testStolenVoiceDoesNotReleaseTheWrongNote()
+{
+    section ("a stolen voice does not get released by the old note's note-off");
+
+    const double sr = 44100.0;
+    const int    blockSize = 512;
+
+    SfxrEngine engine;
+    engine.prepare (sr, blockSize);
+
+    SfxrParams p = toneParams();
+    p.wave_type   = 0;
+    p.env_attack  = 0.0f;
+    p.env_sustain = 0.3f;
+    p.env_decay   = 0.3f;   // 0.09 * 100000 / 44100 = 204 ms of decay
+    engine.setParams (p);
+    engine.setOneShot (false);      // sustain: a held note rings until note-off
+
+    juce::AudioBuffer<float> buffer (2, blockSize);
+
+    // Renders and discards, to let releasing voices finish decaying.
+    auto settle = [&] (int blocks)
+    {
+        for (int b = 0; b < blocks; b++)
+        {
+            buffer.clear();
+            engine.render (buffer, 0, blockSize);
+        }
+    };
+
+    // Peak over the blocks *after* settling, i.e. what is still being held.
+    auto sustainedPeak = [&] (int blocks)
+    {
+        float peak = 0.0f;
+        for (int b = 0; b < blocks; b++)
+        {
+            buffer.clear();
+            engine.render (buffer, 0, blockSize);
+            peak = juce::jmax (peak, buffer.getMagnitude (0, 0, blockSize));
+        }
+        return peak;
+    };
+
+    // Fill the pool, then steal with a ninth note.
+    for (int n = 0; n < SfxrEngine::kNumVoices; n++)
+    {
+        engine.noteOn (60 + n, 1.0f);
+        settle (1);
+    }
+    const int stealingNote = 60 + SfxrEngine::kNumVoices;
+    engine.noteOn (stealingNote, 1.0f);   // steals the oldest voice
+    settle (1);
+
+    // Release every note except the one that did the stealing. If the stolen
+    // voice were still mapped to note 60, releasing 60 would kill it too.
+    for (int n = 0; n < SfxrEngine::kNumVoices; n++)
+        engine.noteOff (60 + n);
+
+    settle (40);                                   // ~0.46 s: decays are over
+    const float held = sustainedPeak (20);
+    std::printf ("  still sounding after the others decayed: %.4f\n", held);
+    check (held > 0.01f, "the held note survives its predecessor's note-off");
+
+    // And once it is released too, everything really does stop.
+    engine.noteOff (stealingNote);
+    settle (40);                                   // let its own decay finish
+    const float after = sustainedPeak (20);
+    std::printf ("  after releasing it as well:              %.4f\n", after);
+    check (after < 1.0e-5f, "releasing the last note silences the engine");
+}
+
+//==============================================================================
 int main()
 {
     std::printf ("SfxrVsti engine tests\n");
@@ -604,6 +745,8 @@ int main()
     testOutputLevelMatchesOriginal();
     testSustainModeHolds();
     testPresetFileRoundTrip();
+    testSampleAccurateNoteOnset();
+    testStolenVoiceDoesNotReleaseTheWrongNote();
 
     std::printf ("\n%d checks, %d failure(s)\n", checks, failures);
     return failures == 0 ? 0 : 1;

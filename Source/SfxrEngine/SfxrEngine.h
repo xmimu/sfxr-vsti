@@ -4,6 +4,11 @@
 #include "SfxrVoice.h"
 
 // Manages a fixed pool of voices and dispatches MIDI notes to them.
+//
+// Threading: everything in here is owned by the audio thread. noteOn/noteOff/
+// process are only ever called from processBlock, and the parameters are handed
+// in by value, so no locking is needed. UI-generated notes reach us the same way
+// as host MIDI, by being merged into the incoming MidiBuffer.
 class SfxrEngine
 {
 public:
@@ -13,9 +18,9 @@ public:
     // buffer up front so that process() never allocates on the audio thread.
     void prepare (double sampleRate, int maxBlockSize);
 
-    void setParams (const SfxrParams& p);
+    void setParams (const SfxrParams& p) { params = p; }
     void setMono (bool mono);
-    void setOneShot (bool oneShot);
+    void setOneShot (bool oneShot)       { oneShotMode = oneShot; }
 
     void noteOn (int midiNote, float velocity);
     void noteOff (int midiNote);
@@ -24,8 +29,10 @@ public:
     // Silences every voice immediately and drops all note mappings.
     void reset();
 
-    // Renders all active voices into stereo output.
-    void process (juce::AudioBuffer<float>& audio);
+    // Renders numSamples of all active voices into audio, starting at
+    // startSample. Adds to whatever is already there, so a block can be split
+    // around MIDI events.
+    void render (juce::AudioBuffer<float>& audio, int startSample, int numSamples);
 
     static constexpr int kNumVoices = 8;
 
@@ -52,8 +59,4 @@ private:
     double sampleRate  = 44100.0;
     bool   monoMode   = false;
     bool   oneShotMode = true;
-
-    // Guards voice state against concurrent noteOn/noteOff (message thread,
-    // from the on-screen keyboard) and process() (audio thread).
-    juce::CriticalSection voiceLock;
 };

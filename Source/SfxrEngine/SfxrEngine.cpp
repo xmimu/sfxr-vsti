@@ -13,8 +13,6 @@ SfxrEngine::SfxrEngine()
 
 void SfxrEngine::prepare (double sr, int maxBlockSize)
 {
-    const juce::ScopedLock sl (voiceLock);
-
     sampleRate = sr;
 
     // Preallocate here so that process() never touches the heap. The extra
@@ -28,16 +26,8 @@ void SfxrEngine::prepare (double sr, int maxBlockSize)
     voiceToNote.fill (-1);
 }
 
-void SfxrEngine::setParams (const SfxrParams& p)
-{
-    const juce::ScopedLock sl (voiceLock);
-    params = p;
-}
-
 void SfxrEngine::setMono (bool mono)
 {
-    const juce::ScopedLock sl (voiceLock);
-
     if (monoMode == mono)
         return;
 
@@ -49,16 +39,8 @@ void SfxrEngine::setMono (bool mono)
     voiceToNote.fill (-1);
 }
 
-void SfxrEngine::setOneShot (bool oneShot)
-{
-    const juce::ScopedLock sl (voiceLock);
-    oneShotMode = oneShot;
-}
-
 void SfxrEngine::reset()
 {
-    const juce::ScopedLock sl (voiceLock);
-
     for (auto& v : voices)
         v.stop();
     noteToVoice.fill (-1);
@@ -102,8 +84,6 @@ void SfxrEngine::noteOn (int midiNote, float velocity)
     if (midiNote < 0 || midiNote > 127)
         return;
 
-    const juce::ScopedLock sl (voiceLock);
-
     if (monoMode)
     {
         // A single voice, always re-triggered by the newest note.
@@ -141,8 +121,6 @@ void SfxrEngine::noteOff (int midiNote)
     if (midiNote < 0 || midiNote > 127)
         return;
 
-    const juce::ScopedLock sl (voiceLock);
-
     if (monoMode)
     {
         voices[0].noteOff();
@@ -161,23 +139,16 @@ void SfxrEngine::noteOff (int midiNote)
 
 void SfxrEngine::allNotesOff()
 {
-    const juce::ScopedLock sl (voiceLock);
-
     for (auto& v : voices)
         v.noteOff();
     noteToVoice.fill (-1);
     voiceToNote.fill (-1);
 }
 
-void SfxrEngine::process (juce::AudioBuffer<float>& audio)
+void SfxrEngine::render (juce::AudioBuffer<float>& audio, int startSample, int numSamples)
 {
-    const int numSamples = audio.getNumSamples();
-    audio.clear();
-
-    if (numSamples == 0)
+    if (numSamples <= 0)
         return;
-
-    const juce::ScopedLock sl (voiceLock);
 
     // Should only ever happen if the host ignores its own maximumBlockSize;
     // growing here is still better than reading past the end of the buffer.
@@ -197,7 +168,7 @@ void SfxrEngine::process (juce::AudioBuffer<float>& audio)
         const bool stillActive = v.render (mono, numSamples);
 
         for (int ch = 0; ch < numChannels; ch++)
-            audio.addFrom (ch, 0, mono, numSamples);
+            audio.addFrom (ch, startSample, mono, numSamples);
 
         // Reap the mapping as soon as the voice ends, so the slot cannot be
         // reassigned while a stale note still points at it.
