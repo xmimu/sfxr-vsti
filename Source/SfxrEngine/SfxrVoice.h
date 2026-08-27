@@ -7,9 +7,11 @@
 // (ResetSample + SynthSample in the original main.cpp), with the following
 // changes to make it usable as an instrument:
 //   - per-voice state so it can be polyphonic
-//   - sample-rate independent time constants (envelope/repeat/arp/vibrato are
-//     scaled by sampleRate/44100)
-//   - MIDI note maps to a transposition around A4 (note 69 == Start Frequency)
+//   - fully sample-rate independent: every constant in the original is
+//     calibrated for 44100 Hz, so each one is rescaled by srScale = sr/44100
+//     according to what it represents (see reset() for the details)
+//   - MIDI note maps to a transposition around the root note (note 69 plays
+//     the unmodified Start Frequency)
 //   - velocity scales the output gain
 //   - optional sustain mode (when oneShot is false the note holds until noteOff)
 //   - the original p_vib_delay parameter is now actually used (vibrato fades in
@@ -17,6 +19,14 @@
 class SfxrVoice
 {
 public:
+    // The phaser delay line is indexed in supersamples (8 per output sample).
+    // The original used 1024 entries at 44100 Hz, i.e. a maximum delay of
+    // 1023/(8*44100) = 2.9 ms. To keep that delay *time* available at higher
+    // sample rates the line has to grow proportionally; 8192 covers everything
+    // up to 352.8 kHz. Must stay a power of two (the index wraps with a mask).
+    static constexpr int kPhaserBufferSize = 8192;
+    static constexpr int kPhaserBufferMask = kPhaserBufferSize - 1;
+
     SfxrVoice();
 
     void start (const SfxrParams& params, double sampleRate,
@@ -57,7 +67,7 @@ private:
     float  fphase      = 0.0f;
     float  fdphase     = 0.0f;
     int    iphase      = 0;
-    float  phaser_buffer[1024] {};
+    float  phaser_buffer[kPhaserBufferSize] {};
     int    ipp         = 0;
 
     float  noise_buffer[32] {};
@@ -93,6 +103,17 @@ private:
     float  velocity    = 1.0f;
     bool   oneShot     = true;
     bool   released    = false;
+
+    // ---- sample-rate dependent limits, recomputed in reset() ----
+    // The original hard-codes these as bare numbers because it only ever ran at
+    // 44100 Hz. They are all expressed in normalised (per-supersample) units, so
+    // they have to track srScale to keep clamping at the same frequency.
+    double srScale     = 1.0;
+    int    minPeriod   = 8;
+    float  fltwMax     = 0.1f;
+    float  flthpMin    = 0.00001f;
+    float  flthpMax    = 0.1f;
+    int    iphaseMax   = 1023;
 
     // ---- retained to support repeat-speed re-trigger ----
     SfxrParams params;
