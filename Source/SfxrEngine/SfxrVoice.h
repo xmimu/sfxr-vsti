@@ -7,15 +7,13 @@
 // (ResetSample + SynthSample in the original main.cpp), with the following
 // changes to make it usable as an instrument:
 //   - per-voice state so it can be polyphonic
-//   - fully sample-rate independent: every constant in the original is
-//     calibrated for 44100 Hz, so each one is rescaled by srScale = sr/44100
-//     according to what it represents (see reset() for the details)
+//   - sample-rate adaptation: constants calibrated for 44100 Hz are rescaled by
+//     srScale = sr/44100 according to what they represent (see reset())
 //   - MIDI note maps to a transposition around the root note (note 69 plays
 //     the unmodified Start Frequency)
 //   - velocity scales the output gain
 //   - optional sustain mode (when oneShot is false the note holds until noteOff)
-//   - the original p_vib_delay parameter is now actually used (vibrato fades in
-//     after the delay rather than being applied immediately)
+//   - the original p_vib_delay field is implemented as a vibrato fade-in
 //   - a zero-length envelope stage no longer divides by zero: the original
 //     emitted a NaN there, which the output clamp cannot catch
 class SfxrVoice

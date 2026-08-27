@@ -4,9 +4,8 @@
 // run headless in CI. Everything here is a property that must hold for the
 // engine to behave as an instrument:
 //
-//   * pitch, envelope timing, vibrato rate, slides and filter sweeps must be
-//     identical at every sample rate (the original sfxr constants are all
-//     calibrated for 44100 Hz)
+//   * pitch, envelope timing, vibrato rate, slides and duty sweep must remain
+//     consistent across sample rates (the original constants target 44100 Hz)
 //   * MIDI notes must transpose by equal temperament
 //   * no parameter combination may ever emit a non-finite sample or exceed the
 //     0 dBFS clamp
@@ -23,6 +22,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <vector>
 
 namespace
@@ -535,6 +535,33 @@ static void testSustainModeHolds()
     check (held.activeUntil / 44100.0 < 1.3, "sustained note ends after release");
 }
 
+static void testOriginalPresetSemantics()
+{
+    section ("preset operations match original semantics");
+
+    juce::Random rng (1234);
+    for (int i = 0; i < (int) PresetCategory::Count; i++)
+    {
+        SfxrParams p;
+        p.sound_vol = 0.23f;
+        generatePreset (p, (PresetCategory) i, rng);
+        check (p.sound_vol == 0.23f,
+               "generator " + juce::String (i) + " preserves Output Level");
+    }
+
+    SfxrParams immediate = toneParams();
+    immediate.vib_strength = 0.7f;
+    immediate.vib_speed = 0.6f;
+    immediate.vib_delay = 0.0f;
+
+    SfxrParams delayed = immediate;
+    delayed.vib_delay = 1.0f;
+
+    const auto a = renderVoice (immediate, 44100.0, 69, 0.5);
+    const auto b = renderVoice (delayed, 44100.0, 69, 0.5);
+    check (a.samples != b.samples, "vib_delay extension changes the vibrato fade-in");
+}
+
 static void testPresetFileRoundTrip()
 {
     section (".sfs round-trip");
@@ -561,26 +588,53 @@ static void testPresetFileRoundTrip()
             continue;
         }
 
-        // load() clamps to the documented domain, so compare against a clamped
-        // copy of what we wrote.
+        // Compare every serialized parameter, not just a representative subset.
         auto eq = [] (float a, float b) { return std::abs (a - b) < 1.0e-6f; };
         const bool same = read.wave_type == written.wave_type
-                       && eq (read.base_freq,   juce::jlimit (0.0f, 1.0f, written.base_freq))
-                       && eq (read.env_sustain, juce::jlimit (0.0f, 1.0f, written.env_sustain))
-                       && eq (read.env_decay,   juce::jlimit (0.0f, 1.0f, written.env_decay))
-                       && eq (read.env_punch,   juce::jlimit (0.0f, 1.0f, written.env_punch))
-                       && eq (read.arp_mod,     juce::jlimit (-1.0f, 1.0f, written.arp_mod))
-                       && eq (read.hpf_freq,    juce::jlimit (0.0f, 1.0f, written.hpf_freq));
+                       && eq (read.sound_vol, written.sound_vol)
+                       && eq (read.base_freq, written.base_freq)
+                       && eq (read.freq_limit, written.freq_limit)
+                       && eq (read.freq_ramp, written.freq_ramp)
+                       && eq (read.freq_dramp, written.freq_dramp)
+                       && eq (read.duty, written.duty)
+                       && eq (read.duty_ramp, written.duty_ramp)
+                       && eq (read.vib_strength, written.vib_strength)
+                       && eq (read.vib_speed, written.vib_speed)
+                       && eq (read.vib_delay, written.vib_delay)
+                       && eq (read.env_attack, written.env_attack)
+                       && eq (read.env_sustain, written.env_sustain)
+                       && eq (read.env_decay, written.env_decay)
+                       && eq (read.env_punch, written.env_punch)
+                       && eq (read.lpf_resonance, written.lpf_resonance)
+                       && eq (read.lpf_freq, written.lpf_freq)
+                       && eq (read.lpf_ramp, written.lpf_ramp)
+                       && eq (read.hpf_freq, written.hpf_freq)
+                       && eq (read.hpf_ramp, written.hpf_ramp)
+                       && eq (read.pha_offset, written.pha_offset)
+                       && eq (read.pha_ramp, written.pha_ramp)
+                       && eq (read.repeat_speed, written.repeat_speed)
+                       && eq (read.arp_speed, written.arp_speed)
+                       && eq (read.arp_mod, written.arp_mod);
         if (! same)
             allMatch = false;
     }
 
     check (allMatch, "all preset categories survive a save/load cycle");
 
+    // Non-finite values are not meaningful parameters and can otherwise reach
+    // float-to-int conversions in the renderer.
+    SfxrParams nonFinite;
+    nonFinite.base_freq = std::numeric_limits<float>::quiet_NaN();
+    check (SfxrPresetFile::save (file, nonFinite), "NaN fixture can be written");
+    SfxrParams rejected;
+    check (! SfxrPresetFile::load (file, rejected), ".sfs containing NaN is rejected");
+
     // A truncated file must be rejected rather than silently half-loaded.
     file.replaceWithData ("\x66\x00\x00\x00\x01", 5);
     SfxrParams dummy;
+    dummy.base_freq = 0.77f;
     check (! SfxrPresetFile::load (file, dummy), "truncated .sfs file is rejected");
+    check (dummy.base_freq == 0.77f, "failed load leaves the destination unchanged");
 
     // So must a bogus version.
     file.replaceWithData ("\xff\xff\x00\x00", 4);
@@ -731,82 +785,79 @@ static void testStolenVoiceDoesNotReleaseTheWrongNote()
 }
 
 //==============================================================================
-static void testOutOfDomainFoldingPreservesTheSound()
+static void testDomainClampingMatchesOriginalUi()
 {
-    section ("folding out-of-domain values preserves the sound");
+    section ("domain clamping matches the original UI");
 
-    // Renders raw (unfolded) parameters, which SfxrVoice accepts as-is.
-    auto renderRaw = [] (const SfxrParams& p)
-    {
-        SfxrVoice v;
-        v.setSeed (4242);
-        v.start (p, 44100.0, 69, 1.0f, true);
-        std::vector<float> buf (22050, 0.0f);
-        v.render (buf.data(), (int) buf.size());
-        return buf;
-    };
-
-    auto identical = [] (const std::vector<float>& a, const std::vector<float>& b)
-    {
-        if (a.size() != b.size()) return false;
-        for (size_t i = 0; i < a.size(); i++)
-            if (a[i] != b[i]) return false;
-        return true;
-    };
-
-    SfxrParams base = toneParams();
-    base.env_attack = 0.1f; base.env_sustain = 0.3f; base.env_decay = 0.3f;
-    base.vib_strength = 0.6f; base.vib_speed = 0.5f; base.vib_delay = 0.3f;
-    base.lpf_freq = 0.7f; base.lpf_resonance = 0.4f; base.hpf_freq = 0.2f;
-
-    // Group 1: squared by the synth, so a negative value must render exactly
-    // like its magnitude. This is what makes abs() the right fold rather than
-    // clamping to zero.
+    // Randomize and Mutate can exceed their sliders' ranges. In the original,
+    // visible Slider() controls clamp later in the same frame before PlaySample;
+    // vib_delay uses the plugin extension's unipolar range.
     struct Field { const char* name; float SfxrParams::* member; };
-    const Field squared[] = {
+    const Field unipolar[] = {
         { "base_freq",     &SfxrParams::base_freq },
+        { "freq_limit",    &SfxrParams::freq_limit },
+        { "duty",          &SfxrParams::duty },
+        { "vib_strength",  &SfxrParams::vib_strength },
         { "vib_speed",     &SfxrParams::vib_speed },
         { "vib_delay",     &SfxrParams::vib_delay },
         { "env_attack",    &SfxrParams::env_attack },
         { "env_sustain",   &SfxrParams::env_sustain },
         { "env_decay",     &SfxrParams::env_decay },
+        { "env_punch",     &SfxrParams::env_punch },
+        { "lpf_freq",      &SfxrParams::lpf_freq },
         { "lpf_resonance", &SfxrParams::lpf_resonance },
         { "hpf_freq",      &SfxrParams::hpf_freq },
+        { "repeat_speed",  &SfxrParams::repeat_speed },
+        { "arp_speed",     &SfxrParams::arp_speed },
+        { "sound_vol",     &SfxrParams::sound_vol },
     };
 
-    for (const auto& f : squared)
+    for (const auto& f : unipolar)
     {
-        SfxrParams negative = base;
-        const float magnitude = base.*(f.member) > 0.05f ? base.*(f.member) : 0.4f;
-        negative.*(f.member) = -magnitude;
+        SfxrParams low;
+        low.*(f.member) = -0.4f;
+        low.clampToDomain();
+        check (low.*(f.member) == 0.0f, juce::String (f.name) + " clamps negative values to zero");
 
-        SfxrParams folded = negative;
-        folded.foldIntoDomain();
-
-        check (std::abs (folded.*(f.member) - magnitude) < 1.0e-9f,
-               juce::String (f.name) + " folds to its magnitude");
-        check (identical (renderRaw (negative), renderRaw (folded)),
-               juce::String (f.name) + " = -x renders identically to +x");
+        SfxrParams high;
+        high.*(f.member) = 1.4f;
+        high.clampToDomain();
+        check (high.*(f.member) == 1.0f, juce::String (f.name) + " clamps values above one");
     }
 
-    // Group 2: sign matters to the synth, but clamping to 0 lands on the same
-    // sound anyway. Verify that rather than assuming it.
+    const Field bipolar[] = {
+        { "freq_ramp",  &SfxrParams::freq_ramp },
+        { "freq_dramp", &SfxrParams::freq_dramp },
+        { "duty_ramp",  &SfxrParams::duty_ramp },
+        { "lpf_ramp",   &SfxrParams::lpf_ramp },
+        { "hpf_ramp",   &SfxrParams::hpf_ramp },
+        { "pha_offset", &SfxrParams::pha_offset },
+        { "pha_ramp",   &SfxrParams::pha_ramp },
+        { "arp_mod",    &SfxrParams::arp_mod },
+    };
+
+    for (const auto& f : bipolar)
     {
-        SfxrParams negDuty = base;  negDuty.wave_type = 0;  negDuty.duty = -0.3f;
-        SfxrParams zeroDuty = negDuty; zeroDuty.duty = 0.0f;
-        check (identical (renderRaw (negDuty), renderRaw (zeroDuty)),
-               "a negative duty renders like duty = 0 (square_duty is clamped)");
+        SfxrParams low;
+        low.*(f.member) = -1.4f;
+        low.clampToDomain();
+        check (low.*(f.member) == -1.0f, juce::String (f.name) + " clamps below minus one");
 
-        SfxrParams negVib = base; negVib.vib_strength = -0.5f;
-        SfxrParams zeroVib = negVib; zeroVib.vib_strength = 0.0f;
-        check (identical (renderRaw (negVib), renderRaw (zeroVib)),
-               "a negative vibrato depth renders like depth = 0");
-
-        SfxrParams negLpf = base; negLpf.lpf_freq = -0.4f;
-        SfxrParams zeroLpf = negLpf; zeroLpf.lpf_freq = 0.0f;
-        check (identical (renderRaw (negLpf), renderRaw (zeroLpf)),
-               "a negative LP cutoff renders like cutoff = 0");
+        SfxrParams high;
+        high.*(f.member) = 1.4f;
+        high.clampToDomain();
+        check (high.*(f.member) == 1.0f, juce::String (f.name) + " clamps above one");
     }
+
+    SfxrParams lowWave;
+    lowWave.wave_type = -1;
+    lowWave.clampToDomain();
+    check (lowWave.wave_type == 0, "wave_type clamps below zero");
+
+    SfxrParams highWave;
+    highWave.wave_type = 4;
+    highWave.clampToDomain();
+    check (highWave.wave_type == 3, "wave_type clamps above three");
 
     // Whatever the generators produce must now be inside the documented domain,
     // so the parameter tree has nothing left to clamp.
@@ -865,10 +916,11 @@ int main()
     testNoNonFiniteOutput();
     testOutputLevelMatchesOriginal();
     testSustainModeHolds();
+    testOriginalPresetSemantics();
     testPresetFileRoundTrip();
     testSampleAccurateNoteOnset();
     testStolenVoiceDoesNotReleaseTheWrongNote();
-    testOutOfDomainFoldingPreservesTheSound();
+    testDomainClampingMatchesOriginalUi();
 
     std::printf ("\n%d checks, %d failure(s)\n", checks, failures);
     return failures == 0 ? 0 : 1;

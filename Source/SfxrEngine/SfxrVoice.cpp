@@ -3,7 +3,12 @@
 namespace
 {
     constexpr double PI = 3.14159265358979323846;
-    constexpr float  kOutputGain = 0.2f;   // matches the original WAV export level
+    constexpr float kOutputGain = 0.2f; // matches the original WAV export level
+
+    float originalRandomFloat (juce::Random& rng, float range)
+    {
+        return (float) rng.nextInt (10001) / 10000.0f * range;
+    }
 
     // Progress through an envelope stage, in [0, 1].
     //
@@ -139,7 +144,7 @@ void SfxrVoice::reset (bool restart)
         // phaser -- fphase is a delay length in supersamples (scales with the
         // rate), while fdphase sweeps that length once per output sample, which
         // already works out to a rate-independent change in delay *time*.
-        fphase  = (float) (std::pow ((double) params.pha_offset, 2.0) * 1020.0 * srScale);
+        fphase = (float) (std::pow ((double) params.pha_offset, 2.0) * 1020.0 * srScale);
         if (params.pha_offset < 0.0f) fphase = -fphase;
         fdphase = std::pow (params.pha_ramp, 2.0f) * 1.0f;
         if (params.pha_ramp < 0.0f) fdphase = -fdphase;
@@ -149,7 +154,7 @@ void SfxrVoice::reset (bool restart)
 
         // noise
         for (int i = 0; i < 32; i++)
-            noise_buffer[i] = rng.nextFloat() * 2.0f - 1.0f;
+            noise_buffer[i] = originalRandomFloat (rng, 2.0f) - 1.0f;
 
         // repeat -- a length in output samples.
         rep_time  = 0;
@@ -205,7 +210,8 @@ bool SfxrVoice::render (float* buffer, int numSamples)
 
         float rfperiod = (float) fperiod;
 
-        // vibrato (with the delay the original never implemented)
+        // sfxr stores p_vib_delay but never applies it. This extension uses the
+        // value as the duration of a smooth vibrato fade-in.
         float vibCurrent = vib_amp;
         if (vib_delay_len > 0 && vib_delay_time < vib_delay_len)
         {
@@ -275,7 +281,7 @@ bool SfxrVoice::render (float* buffer, int numSamples)
                 phase %= period;
                 if (wave_type == 3)
                     for (int j = 0; j < 32; j++)
-                        noise_buffer[j] = rng.nextFloat() * 2.0f - 1.0f;
+                        noise_buffer[j] = originalRandomFloat (rng, 2.0f) - 1.0f;
             }
 
             // base waveform

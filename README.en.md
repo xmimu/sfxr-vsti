@@ -137,7 +137,7 @@ This is a usable-range convention rather than a technical boundary: pitch is tra
 | Start Frequency | 0–1 | start pitch (note 69 plays this value) |
 | Min Frequency | 0–1 | lower pitch limit (stops when a downward slide reaches it) |
 | Slide / Delta Slide | -1–1 | pitch slide / rate of slide change |
-| Vibrato Depth / Speed / Delay | 0–1 | vibrato |
+| Vibrato Depth / Speed / Delay | 0–1 | vibrato depth, rate and fade-in duration; Delay is an extension not implemented by the original |
 | Change Amount / Speed | -1–1 / 0–1 | arpeggio (pitch jump after a delay) |
 | Square Duty / Duty Sweep | 0–1 / -1–1 | square duty cycle and its sweep |
 | Repeat Speed | 0–1 | periodic re-trigger of frequency/duty |
@@ -152,11 +152,11 @@ This is a usable-range convention rather than a technical boundary: pitch is tra
 
 The synthesis core `SfxrVoice` is a line-by-line port of the original `ResetSample()` and `SynthSample()` (see `reference/sfxr-sdl-1.2.1/main.cpp`), with these changes:
 
-- **Sample-rate adaptation**: the original constants are calibrated for 44100 Hz. The implementation rescales pitch, slides, duty sweep, filters, vibrato, envelopes, repeat, arpeggio and phaser delay according to their dimensions. Permanent tests directly cover pitch, envelopes, vibrato, slide and duty sweep; filters, phaser, repeat, arpeggio and vibrato delay do not yet have individual cross-sample-rate regression tests
+- **Sample-rate adaptation**: the original constants are calibrated for 44100 Hz. The implementation rescales pitch, slides, duty sweep, filters, vibrato, envelopes, repeat, arpeggio and phaser delay according to their dimensions. Permanent tests directly cover pitch, envelopes, vibrato, slide and duty sweep; filters, phaser, repeat and arpeggio do not yet have individual cross-sample-rate regression tests
 - **MIDI transposition**: `fperiod *= 2^(-(note-69)/12)`, with note 69 matching the original parameters
 - **Polyphonic state**: the original globals were moved into per-voice fields
 - **Velocity**: MIDI velocity scales the output gain
-- **`vib_delay` implemented**: the original never used this parameter; it now fades the vibrato in after a delay
+- **`vib_delay` extension**: the original stores and randomizes this field but never uses it; this plugin implements it as the time for vibrato to fade from zero to full depth
 - **Sustain mode**: when One-Shot is off, the note holds in the Sustain stage until note-off
 - **Guarded envelope division**: a zero-length stage divided by zero in the original, emitting a NaN. Harmless when writing a WAV file, not when feeding a DAW bus. Guarding the division rather than padding the length keeps non-degenerate sounds sample-for-sample identical to the original (97% bit-identical at 44.1 kHz, max deviation 8.5e-07, purely from computing coefficients in double)
 
@@ -174,10 +174,10 @@ It covers:
 - Consistency of pitch, envelope duration, vibrato rate, gentle frequency slide and duty sweep at **44.1 / 48 / 88.2 / 96 / 192 kHz**
 - MIDI transposition follows equal temperament (+/-1 octave, +7 semitones)
 - A sweep of 692 parameter sets across all 7 preset generators plus randomize/mutate, checking that a **single voice** remains finite and within its ±1 clamp; this does not cover hostile NaN/Inf values in `.sfs` files or the summed peak of multiple voices
-- Bit-identical rendering after applying `abs()` to out-of-domain parameters that the synth squares, plus domain checks for 10850 generated parameter sets
+- The original Slider clamping rules for unipolar and bipolar parameters, plus domain checks for 10850 generated parameter sets
 - Output level matches the original WAV export and scales linearly with Output Level
 - One-shot notes end by themselves; sustained notes hold until note-off
-- Representative v102 `.sfs` fields round-trip, while truncated files and unknown versions are rejected; v100/v101 and all-field golden fixtures are not yet covered
+- All v102 `.sfs` parameters round-trip; NaN values, truncated files and unknown versions are rejected, and failed loads leave the destination unchanged. v100/v101 golden fixtures are not yet covered
 
 ## License
 

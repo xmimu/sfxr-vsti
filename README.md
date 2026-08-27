@@ -137,7 +137,7 @@ Windows CI 使用 MSVC；Linux 需 ALSA/JACK/X11 等开发库（见 `.github/wor
 | Start Frequency | 0–1 | 起始频率（note 69 对应此值） |
 | Min Frequency | 0–1 | 频率下限（向下滑音触底即停止） |
 | Slide / Delta Slide | -1–1 | 频率滑移 / 滑移变化率 |
-| Vibrato Depth / Speed / Delay | 0–1 | 颤音 |
+| Vibrato Depth / Speed / Delay | 0–1 | 颤音深度、速度与渐入时间；Delay 是原版未实现的扩展 |
 | Change Amount / Speed | -1–1 / 0–1 | 琶音（延时后跳变音高） |
 | Square Duty / Duty Sweep | 0–1 / -1–1 | 方波占空比及其扫频 |
 | Repeat Speed | 0–1 | 周期性重触发频率/占空比 |
@@ -152,11 +152,11 @@ Windows CI 使用 MSVC；Linux 需 ALSA/JACK/X11 等开发库（见 `.github/wor
 
 合成核心 `SfxrVoice` 是对原版 `ResetSample()` 与 `SynthSample()` 的逐句移植（见 `reference/sfxr-sdl-1.2.1/main.cpp`），主要改造：
 
-- **采样率适配**：原版常数按 44100 Hz 校准，当前实现按量纲缩放音高、滑音、占空比扫描、滤波器、颤音、包络、repeat、arpeggio 与 phaser 延时。常驻测试直接覆盖音高、包络、颤音、滑音和占空比扫描；滤波器、phaser、repeat、arpeggio 与 vibrato delay 尚缺逐项跨采样率回归测试
+- **采样率适配**：原版常数按 44100 Hz 校准，当前实现按量纲缩放音高、滑音、占空比扫描、滤波器、颤音、包络、repeat、arpeggio 与 phaser 延时。常驻测试直接覆盖音高、包络、颤音、滑音和占空比扫描；滤波器、phaser、repeat 与 arpeggio 尚缺逐项跨采样率回归测试
 - **MIDI 移调**：`fperiod *= 2^(-(note-69)/12)`，note 69 对应原始参数
 - **复音状态**：原版的全局变量全部下沉为 voice 实例字段
 - **力度**：MIDI velocity 缩放输出增益
-- **`vib_delay` 生效**：原版该参数从未使用，现实现为「延迟后淡入」
+- **`vib_delay` 扩展**：原版会保存和随机化该字段但从未使用；本插件将其实现为颤音从零渐变到完整深度所需的时间
 - **Sustain 模式**：One-Shot 关闭时，音符停在 Sustain 阶段直到 note-off
 - **包络除法判零**：原版在阶段长度为 0 时 0/0 得到 NaN，写 WAV 无妨，但送进 DAW 母线不可接受。判零而不是给长度加下限，保证非退化声音与原版逐样本一致（44.1 kHz 下与移植前 97% 逐位相同，最大偏差 8.5e-07，仅来自系数改用 double 计算）
 
@@ -174,10 +174,10 @@ ctest --test-dir build --output-on-failure
 - 音高、包络时长、颤音速率、温和滑音、占空比扫描在 **44.1 / 48 / 88.2 / 96 / 192 kHz** 下的一致性
 - MIDI 移调符合十二平均律（±1 八度、+7 半音）
 - 遍历 7 类预设生成器与 randomize/mutate 共 692 组参数，检查**单个 voice** 的输出有限且不越过其 ±1 限幅；该测试不覆盖恶意 `.sfs` 中的 NaN/Inf 或多 voice 混音峰值
-- 验证被合成器平方使用的越界参数在取 `abs()` 后渲染结果逐位相同，并检查 10850 组生成参数全部落在取值域内
+- 验证原版 Slider 的单极/双极参数夹取规则，并检查 10850 组生成参数全部落在取值域内
 - 输出电平与原版 WAV 导出一致，且随 Output Level 线性变化
 - One-Shot 自行结束、Sustain 模式持续到 note-off
-- `.sfs` v102 的部分代表字段可往返，截断文件与未知版本号会被拒绝；v100/v101 和全部字段的 golden fixture 尚未加入测试
+- `.sfs` v102 的全部参数可往返，NaN、截断文件与未知版本号会被拒绝，失败加载不会修改目标参数；v100/v101 golden fixture 尚未加入测试
 
 ## 捐赠
 

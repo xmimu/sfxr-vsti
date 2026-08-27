@@ -247,9 +247,12 @@ void SfxrVstiAudioProcessorEditor::paint (juce::Graphics& g)
 
     g.setFont (12.0f);
     g.drawText ("VSTi", 12, 26, 60, 16, juce::Justification::centredLeft);
+    g.drawText (juce::String ("v") + JucePlugin_VersionString,
+                62, 26, 58, 16, juce::Justification::centredRight);
 
     g.setColour (kDivider);
     g.drawLine (128.0f, 36.0f, 128.0f, 700.0f);
+    g.drawLine (12.0f, 234.0f, 122.0f, 234.0f);
 
     // divider above the waveform display
     g.setColour (kDivider);
@@ -362,6 +365,8 @@ void SfxrVstiAudioProcessorEditor::buildInterface()
         b->onClick = [this, cat] { generateCategory (cat); };
         gy += 24;
     }
+
+    gy += 12;
 
     auto addActionButton = [this, &gy] (const juce::String& text, std::function<void()> fn)
     {

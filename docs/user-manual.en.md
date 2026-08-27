@@ -152,7 +152,7 @@ Controls how loudness evolves over time, shaping the attack–sustain–decay co
 |-----------|-------|-------------|
 | DEPTH | 0–1 | vibrato depth (pitch wobble amount) |
 | SPEED | 0–1 | vibrato speed |
-| DELAY | 0–1 | delay before vibrato starts (then fades in) |
+| DELAY | 0–1 | time for vibrato to fade from zero to full depth; an extension built on a field that the original stored but did not use |
 
 ### 4.5 Arpeggio / pitch jump (ARPEGGIO)
 

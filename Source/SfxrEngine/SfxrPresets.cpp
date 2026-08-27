@@ -2,9 +2,13 @@
 
 namespace
 {
-    // Original helpers: rnd(n) -> nextInt(n+1), frnd(range) -> nextFloat()*range
+    // Original helpers: rnd(n) includes both ends; frnd(range) uses 10001
+    // discrete values and includes range exactly.
     int   irnd (juce::Random& r, int n)     { return r.nextInt (n + 1); }
-    float frnd (juce::Random& r, float range){ return r.nextFloat() * range; }
+    float frnd (juce::Random& r, float range)
+    {
+        return (float) irnd (r, 10000) / 10000.0f * range;
+    }
 }
 
 const char* presetCategoryName (PresetCategory c)
@@ -25,7 +29,9 @@ const char* presetCategoryName (PresetCategory c)
 
 void generatePreset (SfxrParams& p, PresetCategory c, juce::Random& r)
 {
+    const float soundVolume = p.sound_vol;
     p.resetDefaults();
+    p.sound_vol = soundVolume; // ResetParams() in the original leaves this alone.
 
     switch (c)
     {
@@ -195,7 +201,7 @@ void generatePreset (SfxrParams& p, PresetCategory c, juce::Random& r)
             break;
     }
 
-    p.foldIntoDomain();
+    p.clampToDomain();
 }
 
 void randomize (SfxrParams& p, juce::Random& r)
@@ -237,10 +243,9 @@ void randomize (SfxrParams& p, juce::Random& r)
     p.arp_speed = frnd (r, 2.0f) - 1.0f;
     p.arp_mod   = frnd (r, 2.0f) - 1.0f;
 
-    // The assignments above are a literal port and deliberately overshoot the
-    // documented ranges, exactly as the original does. Fold them back in a way
-    // that keeps the sound rather than letting the parameter tree clamp them.
-    p.foldIntoDomain();
+    // The original runs its Slider() controls later in the same UI frame, before
+    // PlaySample(), which clamps generated values to their displayed ranges.
+    p.clampToDomain();
 }
 
 void mutate (SfxrParams& p, juce::Random& r)
@@ -269,5 +274,5 @@ void mutate (SfxrParams& p, juce::Random& r)
     if (irnd (r, 1)) p.arp_mod      += frnd (r, 0.1f) - 0.05f;
 
     // Repeated nudges drift out of range over time.
-    p.foldIntoDomain();
+    p.clampToDomain();
 }

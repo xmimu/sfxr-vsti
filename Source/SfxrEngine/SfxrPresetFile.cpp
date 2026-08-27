@@ -8,6 +8,11 @@ namespace SfxrPresetFile
         if (!in.openedOk())
             return false;
 
+        // The original UI calls ResetParams() before loading. Decode into a
+        // fresh object so fields absent from v100/v101 use those defaults, and
+        // so a short read never partially mutates the caller's object.
+        SfxrParams loaded;
+
         bool allOk = true;
         auto readInt   = [&] (int& v)   { const bool ok = in.read (&v, sizeof (v)) == (int) sizeof (v); allOk &= ok; return ok; };
         auto readFloat = [&] (float& v) { const bool ok = in.read (&v, sizeof (v)) == (int) sizeof (v); allOk &= ok; return ok; };
@@ -24,57 +29,69 @@ namespace SfxrPresetFile
             return false;
         if (wave < 0 || wave > 3)
             return false;
-        p.wave_type = wave;
+        loaded.wave_type = wave;
 
-        p.sound_vol = 0.5f;
+        loaded.sound_vol = 0.5f;
         if (version == 102)
-            readFloat (p.sound_vol);
+            readFloat (loaded.sound_vol);
 
-        readFloat (p.base_freq);
-        readFloat (p.freq_limit);
-        readFloat (p.freq_ramp);
+        readFloat (loaded.base_freq);
+        readFloat (loaded.freq_limit);
+        readFloat (loaded.freq_ramp);
         if (version >= 101)
-            readFloat (p.freq_dramp);
-        readFloat (p.duty);
-        readFloat (p.duty_ramp);
+            readFloat (loaded.freq_dramp);
+        readFloat (loaded.duty);
+        readFloat (loaded.duty_ramp);
 
-        readFloat (p.vib_strength);
-        readFloat (p.vib_speed);
-        readFloat (p.vib_delay);
+        readFloat (loaded.vib_strength);
+        readFloat (loaded.vib_speed);
+        readFloat (loaded.vib_delay);
 
-        readFloat (p.env_attack);
-        readFloat (p.env_sustain);
-        readFloat (p.env_decay);
-        readFloat (p.env_punch);
+        readFloat (loaded.env_attack);
+        readFloat (loaded.env_sustain);
+        readFloat (loaded.env_decay);
+        readFloat (loaded.env_punch);
 
         bool filter_on = false;
         readBool (filter_on); // unused
 
-        readFloat (p.lpf_resonance);
-        readFloat (p.lpf_freq);
-        readFloat (p.lpf_ramp);
-        readFloat (p.hpf_freq);
-        readFloat (p.hpf_ramp);
+        readFloat (loaded.lpf_resonance);
+        readFloat (loaded.lpf_freq);
+        readFloat (loaded.lpf_ramp);
+        readFloat (loaded.hpf_freq);
+        readFloat (loaded.hpf_ramp);
 
-        readFloat (p.pha_offset);
-        readFloat (p.pha_ramp);
+        readFloat (loaded.pha_offset);
+        readFloat (loaded.pha_ramp);
 
-        readFloat (p.repeat_speed);
+        readFloat (loaded.repeat_speed);
 
         if (version >= 101)
         {
-            readFloat (p.arp_speed);
-            readFloat (p.arp_mod);
+            readFloat (loaded.arp_speed);
+            readFloat (loaded.arp_mod);
         }
 
         if (! allOk)
             return false;
 
-        // Fold into the documented domain. The original sfxr writes whatever
-        // Randomize left in its globals, so real .sfs files do contain values
-        // outside these ranges; foldIntoDomain() reproduces the sound they had
-        // there instead of flattening them to zero.
-        p.foldIntoDomain();
+        const float values[] = {
+            loaded.sound_vol, loaded.base_freq, loaded.freq_limit,
+            loaded.freq_ramp, loaded.freq_dramp, loaded.duty, loaded.duty_ramp,
+            loaded.vib_strength, loaded.vib_speed, loaded.vib_delay,
+            loaded.env_attack, loaded.env_sustain, loaded.env_decay, loaded.env_punch,
+            loaded.lpf_resonance, loaded.lpf_freq, loaded.lpf_ramp,
+            loaded.hpf_freq, loaded.hpf_ramp, loaded.pha_offset, loaded.pha_ramp,
+            loaded.repeat_speed, loaded.arp_speed, loaded.arp_mod
+        };
+
+        for (const float value : values)
+            if (! std::isfinite (value))
+                return false;
+
+        // Match the original UI's Slider() pass after loading.
+        loaded.clampToDomain();
+        p = loaded;
 
         return true;
     }
