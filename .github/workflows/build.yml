@@ -17,14 +17,30 @@ jobs:
         include:
           - os: macos-latest
             platform: macOS
+            # Ship a universal binary; macos-latest runners are Apple Silicon,
+            # so without this Intel Mac users get an unusable plugin. The inner
+            # quotes have to survive into the shell or the ';' would split the
+            # command.
+            cmake_args: '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"'
           - os: windows-latest
             platform: Windows
+            cmake_args: ""
           - os: ubuntu-latest
             platform: Linux
+            cmake_args: ""
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
+
+      # JUCE is pulled in with FetchContent, so cache the clone rather than
+      # re-downloading the whole framework on every run.
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.15-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: juce-8.0.15-${{ runner.os }}-
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -48,10 +64,13 @@ jobs:
             mesa-common-dev
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
+
+      - name: Run engine tests
+        run: ctest --test-dir build --build-config Release --output-on-failure
 
       - name: Remove intermediate build files
         shell: bash
@@ -59,7 +78,31 @@ jobs:
           find build/SfxrVsti_artefacts/Release -type f \
             \( -name "*.a" -o -name "*.lib" -o -name "*.exp" \) -delete
 
+      # upload-artifact does not preserve macOS bundle structure reliably, so
+      # pack the plugins ourselves first.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Ad-hoc sign so Gatekeeper does not block the downloaded plugins.
+          for bundle in build/SfxrVsti_artefacts/Release/VST3/*.vst3 \
+                        build/SfxrVsti_artefacts/Release/AU/*.component \
+                        build/SfxrVsti_artefacts/Release/Standalone/*.app; do
+            [ -e "$bundle" ] || continue
+            codesign --force --deep --sign - "$bundle"
+          done
+          mkdir -p dist
+          ditto -c -k --keepParent build/SfxrVsti_artefacts/Release dist/SfxrVsti-macOS.zip
+
+      - name: Upload artifacts (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SfxrVsti-macOS
+          path: dist/SfxrVsti-macOS.zip
+          if-no-files-found: error
+
       - name: Upload artifacts
+        if: runner.os != 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: SfxrVsti-${{ matrix.platform }}
@@ -86,7 +129,15 @@ jobs:
         run: |
           cd dist
           for d in */; do
-            zip -r "${d%/}.zip" "$d"
+            name="${d%/}"
+            # macOS is uploaded pre-zipped (to preserve the bundle layout), so
+            # just lift it out instead of nesting a second archive.
+            if [ -f "$d/$name.zip" ]; then
+              mv "$d/$name.zip" "$name.zip"
+              rmdir "$d" 2>/dev/null || true
+            else
+              zip -r "$name.zip" "$d"
+            fi
           done
           ls -la
 
