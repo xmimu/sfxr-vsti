@@ -14,8 +14,8 @@ A JUCE instrument plugin built on the [sfxr](http://www.drpetter.se/project_sfxr
 - **Two trigger modes**: One-Shot (default, plays to completion) and Sustain (holds until note-off)
 - **All 24 sfxr parameters** are exposed to the host (note: parameters are latched at note-on, as in the original sfxr, so automation does not alter a note that is already sounding)
 - **Classic sfxr look**: beige/orange sliders, 7 preset generators + RANDOMIZE / MUTATE
-- **On-screen MIDI keyboard** (full 88 keys, keys outside the usable range greyed out, root note highlighted) + real-time waveform oscilloscope
-- **.sfs file compatibility**: reads/writes the original sfxr parameter files (version 102), with parameters kept as continuous floats rather than quantised
+- **On-screen MIDI keyboard**: displays all 88 keys from A0 to C8, but the plugin responds only to C2-C6 (MIDI 36-84); other keys are disabled and the root is highlighted
+- **.sfs file compatibility**: reads original sfxr versions 100/101/102 and writes version 102, with parameters kept as continuous floats rather than quantised
 - **8 factory programs**: Init plus one per generator category, exposed in the host's preset menu (deterministic -- the same program always gives the same sound)
 
 ## Directory structure
@@ -35,7 +35,7 @@ sfxr-vsti/
 ├── tests/RenderTest.cpp    # offline render test (DSP verification)
 ├── scripts/build.sh        # build script (macOS/Linux)
 ├── scripts/build_windows.bat # build script (Windows)
-└── reference/              # upstream sfxr-sdl-1.2.1 source (gitignored)
+└── reference/              # optional local upstream reference (gitignored, not part of the repository)
 ```
 
 ## Download
@@ -56,6 +56,19 @@ Extract and copy to the user plugin folders:
 
 - VST3 → `~/Library/Audio/Plug-Ins/VST3/`
 - AU → `~/Library/Audio/Plug-Ins/Components/`
+
+The pre-built macOS binaries are ad-hoc signed and **not notarized by Apple**. If your host refuses to scan a plugin because it is quarantined, run these commands after copying it:
+
+```bash
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/VST3/SfxrVsti.vst3"
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/Components/SfxrVsti.component"
+```
+
+If you copied the Standalone app to `/Applications`, use:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/SfxrVsti.app"
+```
 
 ### Windows
 
@@ -96,22 +109,22 @@ cmake --build build --parallel
 | Windows | VST3 + Standalone | `build/SfxrVsti_artefacts/Release/` |
 | Linux | VST3 + Standalone | `build/SfxrVsti_artefacts/Release/` |
 
-Windows requires MSVC or MinGW; Linux requires the ALSA/JACK/X11 development libraries (see the full dependency list in `.github/workflows/build.yml`).
+Windows CI uses MSVC; Linux requires the ALSA/JACK/X11 development libraries listed in `.github/workflows/build.yml`. MinGW is not currently tested in CI.
 
 ## Usage
 
 ### Interface
 
 - **GENERATOR column** (left): 7 preset categories (PICKUP/COIN, LASER/SHOOT, EXPLOSION, POWERUP, HIT/HURT, JUMP, BLIP/SELECT) + PLAY SOUND / RANDOMIZE / MUTATE / LOAD SOUND / SAVE SOUND
-- **MANUAL SETTINGS** (right): all parameters grouped under ENVELOPE / FREQUENCY / VIBRATO / SQUARE DUTY / REPEAT / ARPEGGIO / PHASER / FILTERS
+- **MANUAL SETTINGS** (right): continuous parameters grouped under ENVELOPE / FREQUENCY / VIBRATO / SQUARE DUTY / REPEAT / ARPEGGIO / PHASER / FILTERS / VOLUME
 - **Waveform oscilloscope** (bottom): live output waveform
-- **Virtual keyboard** (bottom): 88 keys, click/drag to play; the root note (69) is highlighted in orange and labelled ROOT; keys outside C2–C6 are greyed out and do not respond
+- **Virtual keyboard** (bottom): displays all 88 keys from A0 to C8, but only C2-C6 (MIDI 36-84) respond to click/drag; other keys are disabled; note 69 is highlighted in orange and labelled ROOT
 
 ### Valid note range
 
-The synth is rooted at note 69; other notes transpose by `2^(-(note-69)/12)`. The root's own frequency depends on **Start Frequency** (about 321 Hz at the default of 0.3), so the note names on the keyboard are positional landmarks rather than concert pitches.
+The synth is rooted at note 69. Its oscillator period is multiplied by `2^(-(note-69)/12)`, so frequency changes by `2^((note-69)/12)`. The root's own frequency depends on **Start Frequency** (about 321 Hz at the default of 0.3), so keyboard note names are positional landmarks rather than concert pitches.
 
-The trigger range is **C2-C6 (MIDI 36-84)**. Notes outside it are greyed out on screen, ignore mouse clicks, and incoming DAW MIDI is ignored as well, so the UI and the host behave identically.
+The plugin's only trigger range is **C2-C6 (MIDI 36-84, inclusive)**. Although the on-screen keyboard displays all 88 keys, keys outside this range are disabled. Out-of-range note-on and note-off events from a DAW are filtered as well.
 
 This is a usable-range convention rather than a technical boundary: pitch is transposed relative to START FREQ, so the actual frequency of a given MIDI note depends on that parameter. At the default of 0.3, C2 is about 48 Hz and C6 about 764 Hz.
 
@@ -139,7 +152,7 @@ This is a usable-range convention rather than a technical boundary: pitch is tra
 
 The synthesis core `SfxrVoice` is a line-by-line port of the original `ResetSample()` and `SynthSample()` (see `reference/sfxr-sdl-1.2.1/main.cpp`), with these changes:
 
-- **Sample-rate independence**: every constant in the original is calibrated for 44100 Hz, so each is rescaled according to its dimension (lengths x `sr/44100`, first-order rates / `sr/44100`, second-order rates / `(sr/44100)^2`). This covers pitch, slides, duty sweep, filter coefficients and sweeps, vibrato, envelopes, repeat, arpeggio and the phaser delay. `tests/RenderTest.cpp` verifies each one at 44.1/48/88.2/96/192 kHz
+- **Sample-rate adaptation**: the original constants are calibrated for 44100 Hz. The implementation rescales pitch, slides, duty sweep, filters, vibrato, envelopes, repeat, arpeggio and phaser delay according to their dimensions. Permanent tests directly cover pitch, envelopes, vibrato, slide and duty sweep; filters, phaser, repeat, arpeggio and vibrato delay do not yet have individual cross-sample-rate regression tests
 - **MIDI transposition**: `fperiod *= 2^(-(note-69)/12)`, with note 69 matching the original parameters
 - **Polyphonic state**: the original globals were moved into per-voice fields
 - **Velocity**: MIDI velocity scales the output gain
@@ -158,13 +171,13 @@ ctest --test-dir build --output-on-failure
 
 It covers:
 
-- Pitch, envelope duration, vibrato rate, frequency slide and duty sweep must be **identical at 44.1 / 48 / 88.2 / 96 / 192 kHz** (all of these constants are calibrated for 44100 Hz in the original)
+- Consistency of pitch, envelope duration, vibrato rate, gentle frequency slide and duty sweep at **44.1 / 48 / 88.2 / 96 / 192 kHz**
 - MIDI transposition follows equal temperament (+/-1 octave, +7 semitones)
-- A sweep of 692 parameter sets across all 7 preset generators plus randomize/mutate, asserting the output **never contains NaN/Inf and never exceeds the 0 dBFS clamp**
-- Out-of-domain folding is **bit-identical** to the original (parameters the synth squares render exactly the same after abs()), and 10850 generated parameter sets all land inside the domain
+- A sweep of 692 parameter sets across all 7 preset generators plus randomize/mutate, checking that a **single voice** remains finite and within its ±1 clamp; this does not cover hostile NaN/Inf values in `.sfs` files or the summed peak of multiple voices
+- Bit-identical rendering after applying `abs()` to out-of-domain parameters that the synth squares, plus domain checks for 10850 generated parameter sets
 - Output level matches the original WAV export and scales linearly with Output Level
 - One-shot notes end by themselves; sustained notes hold until note-off
-- `.sfs` files round-trip; truncated files and unknown versions are rejected
+- Representative v102 `.sfs` fields round-trip, while truncated files and unknown versions are rejected; v100/v101 and all-field golden fixtures are not yet covered
 
 ## License
 

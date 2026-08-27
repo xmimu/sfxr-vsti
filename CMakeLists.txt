@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(SfxrVsti VERSION 1.0.0)
+project(SfxrVsti VERSION 1.1.0)
 
 enable_testing()
 
@@ -31,7 +31,7 @@ juce_add_plugin(
     PLUGIN_CODE              "Vsti"
     FORMATS                 ${SFXR_FORMATS}
     PRODUCT_NAME            "SfxrVsti"
-    VERSION                 1.0.0
+    VERSION                 ${PROJECT_VERSION}
     IS_SYNTH                TRUE
     NEEDS_MIDI_INPUT        TRUE
     NEEDS_MIDI_OUTPUT       FALSE
@@ -79,4 +79,3 @@ target_compile_features(SfxrRenderTest PRIVATE cxx_std_17)
 target_link_libraries(SfxrRenderTest PRIVATE juce::juce_audio_basics)
 
 add_test(NAME EngineTests COMMAND SfxrRenderTest)
-

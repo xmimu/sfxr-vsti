@@ -45,6 +45,19 @@ Copy the extracted plugins to the user plugin folders:
 | VST3 | `~/Library/Audio/Plug-Ins/VST3/` |
 | AU | `~/Library/Audio/Plug-Ins/Components/` |
 
+The pre-built macOS binaries are ad-hoc signed and **not notarized by Apple**. If your host refuses to scan a plugin because it is quarantined, run these commands after copying it:
+
+```bash
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/VST3/SfxrVsti.vst3"
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/Components/SfxrVsti.component"
+```
+
+If you copied the Standalone app to `/Applications`:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/SfxrVsti.app"
+```
+
 Restart your host (or trigger a plugin rescan) and "SfxrVsti" will appear in the instrument list.
 
 ### Windows
@@ -220,7 +233,7 @@ The bottom shows the full 88-key keyboard (A0–C8):
 
 ### Why limit it to C2–C6?
 
-The synth is rooted at note 69 and transposes in semitones, and every MIDI note (0-127) sounds.
+The synth is rooted at note 69 and transposes in semitones, but the plugin responds only to C2-C6 (MIDI 36-84, inclusive). Out-of-range note-on and note-off events are filtered; the on-screen keyboard displays A0-C8 but disables keys outside the trigger range.
 
 This is a usable-range convention rather than a technical boundary. Pitch is transposed in semitones relative to START FREQ, so the actual frequency of a given MIDI note depends on that parameter: at the default of 0.3, C2 is about 48 Hz, the root about 321 Hz and C6 about 764 Hz. Transpose much further down and the fundamental falls below hearing; much further up and noise/explosion-type sounds tend to distort. C2-C6 is therefore taken as the default usable window.
 

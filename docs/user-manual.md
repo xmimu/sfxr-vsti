@@ -45,6 +45,19 @@
 | VST3 | `~/Library/Audio/Plug-Ins/VST3/` |
 | AU | `~/Library/Audio/Plug-Ins/Components/` |
 
+预编译的 macOS 产物采用 ad-hoc 签名，**未经过 Apple notarization**。如果宿主因下载隔离属性而拒绝扫描插件，请在复制完成后运行：
+
+```bash
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/VST3/SfxrVsti.vst3"
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/Components/SfxrVsti.component"
+```
+
+如果 Standalone 已复制到 `/Applications`：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/SfxrVsti.app"
+```
+
 安装后重启宿主（或触发音频插件重新扫描）即可在乐器列表中看到「SfxrVsti」。
 
 ### Windows
@@ -220,7 +233,7 @@ Standalone 应用无需宿主，双击即可运行，用于快速试听。
 
 ### 为什么限制在 C2–C6？
 
-合成以 note 69 为根音按半音移调，全部 MIDI 音符（0–127）都会发声。
+合成以 note 69 为根音按半音移调，但插件只响应 C2–C6（MIDI 36–84，含两端）。范围外的 note-on/note-off 会被过滤；屏幕键盘虽显示 A0–C8 共 88 键，范围外按键也不会触发声音。
 
 这是一个「实用音域」约定，不是技术边界。音高是在 START FREQ 的基础上按半音移调的，所以同一个 MIDI 音符的实际频率取决于该参数：默认 0.3 时 C2 约 48 Hz、根音约 321 Hz、C6 约 764 Hz。再往下移调基频会低到听不见，再往上噪声/爆炸类音效容易失真，因此固定取 C2–C6 作为默认的可用区间。
 

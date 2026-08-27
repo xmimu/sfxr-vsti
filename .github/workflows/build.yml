@@ -83,12 +83,14 @@ jobs:
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          # Ad-hoc sign so Gatekeeper does not block the downloaded plugins.
+          # Ad-hoc signing validates bundle integrity but does not provide Apple
+          # notarization or bypass Gatekeeper for quarantined downloads.
           for bundle in build/SfxrVsti_artefacts/Release/VST3/*.vst3 \
                         build/SfxrVsti_artefacts/Release/AU/*.component \
                         build/SfxrVsti_artefacts/Release/Standalone/*.app; do
             [ -e "$bundle" ] || continue
             codesign --force --deep --sign - "$bundle"
+            codesign --verify --deep --strict --verbose=2 "$bundle"
           done
           mkdir -p dist
           ditto -c -k --keepParent build/SfxrVsti_artefacts/Release dist/SfxrVsti-macOS.zip

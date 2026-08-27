@@ -14,8 +14,8 @@
 - **两种触发模式**：One-Shot（默认，像鼓一样播完）与 Sustain（按住持续、松开释放）
 - **全部 24 个 sfxr 参数** 均暴露给宿主（注意：参数在 note-on 时锁存，与原版 sfxr 一致，自动化不会改变已发声音符）
 - **经典 sfxr 外观**：米黄底 + 橙色滑条，7 个预设生成器 + RANDOMIZE / MUTATE
-- **虚拟 MIDI 键盘**（全 88 键，有效区外灰化禁用，根音高亮）+ 实时波形示波器
-- **.sfs 文件兼容**：可读写原版 sfxr 的参数文件（版本 102），参数为连续浮点、不做量化
+- **虚拟 MIDI 键盘**：显示 A0–C8 共 88 键，但插件只响应 C2–C6（MIDI 36–84）；范围外按键灰化禁用，根音高亮
+- **.sfs 文件兼容**：可读取原版 sfxr 100/101/102 格式并写出 102 格式，参数为连续浮点、不做量化
 - **8 个出厂 program**：Init + 7 个生成器类别，暴露给宿主的预设菜单（确定性，选中同一个 program 始终得到同一个声音）
 
 ## 目录结构
@@ -35,7 +35,7 @@ sfxr-vsti/
 ├── tests/RenderTest.cpp    # 离线渲染测试（验证 DSP）
 ├── scripts/build.sh        # 构建脚本（macOS/Linux）
 ├── scripts/build_windows.bat # 构建脚本（Windows）
-└── reference/              # 上游 sfxr-sdl-1.2.1 源码（已 gitignore）
+└── reference/              # 可选的本地上游参考源码（已 gitignore，不属于仓库内容）
 ```
 
 ## 下载
@@ -56,6 +56,19 @@ sfxr-vsti/
 
 - VST3 → `~/Library/Audio/Plug-Ins/VST3/`
 - AU → `~/Library/Audio/Plug-Ins/Components/`
+
+预编译的 macOS 产物采用 ad-hoc 签名，**未经过 Apple notarization**。如果宿主因下载隔离属性而拒绝扫描插件，请在复制完成后运行：
+
+```bash
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/VST3/SfxrVsti.vst3"
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/Components/SfxrVsti.component"
+```
+
+如果 Standalone 已复制到 `/Applications`，对应命令为：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/SfxrVsti.app"
+```
 
 ### Windows
 
@@ -96,22 +109,22 @@ cmake --build build --parallel
 | Windows | VST3 + Standalone | `build/SfxrVsti_artefacts/Release/` |
 | Linux | VST3 + Standalone | `build/SfxrVsti_artefacts/Release/` |
 
-Windows 需 MSVC 或 MinGW；Linux 需 ALSA/JACK/X11 等开发库（见 `.github/workflows/build.yml` 的完整依赖列表）。
+Windows CI 使用 MSVC；Linux 需 ALSA/JACK/X11 等开发库（见 `.github/workflows/build.yml` 的完整依赖列表）。MinGW 当前未在 CI 中验证。
 
 ## 使用
 
 ### 界面
 
 - **GENERATOR 列**（左）：7 个预设类别（PICKUP/COIN、LASER/SHOOT、EXPLOSION、POWERUP、HIT/HURT、JUMP、BLIP/SELECT）+ PLAY SOUND / RANDOMIZE / MUTATE / LOAD SOUND / SAVE SOUND
-- **MANUAL SETTINGS**（右）：全部参数按 ENVELOPE / FREQUENCY / VIBRATO / SQUARE DUTY / REPEAT / ARPEGGIO / PHASER / FILTERS 分组
+- **MANUAL SETTINGS**（右）：连续参数按 ENVELOPE / FREQUENCY / VIBRATO / SQUARE DUTY / REPEAT / ARPEGGIO / PHASER / FILTERS / VOLUME 分组
 - **波形示波器**（底部）：实时显示输出波形
-- **虚拟键盘**（底部）：88 键，点击/拖拽触发；根音（note 69）橙色高亮并标注 ROOT；C2–C6 之外灰化且不响应
+- **虚拟键盘**（底部）：显示 A0–C8 共 88 键，但只有 C2–C6（MIDI 36–84）能通过点击/拖拽触发；范围外按键灰化且不响应；note 69 橙色高亮并标注 ROOT
 
 ### 有效音符范围
 
-合成以 note 69 为根音，其余音符按 `2^(-(note-69)/12)` 移调。根音本身的频率取决于「Start Frequency」（默认 0.3 时约 321 Hz），因此键盘上的音名仅供定位，不代表标准音高。
+合成以 note 69 为根音：振荡器周期乘以 `2^(-(note-69)/12)`，因此频率按 `2^((note-69)/12)` 移调。根音本身的频率取决于「Start Frequency」（默认 0.3 时约 321 Hz），所以键盘音名仅用于定位，不代表标准十二平均律音高。
 
-有效触发范围为 **C2–C6（MIDI 36–84）**，范围外的音符在 UI 上灰化、不响应鼠标，DAW MIDI 事件同样被忽略（两者行为一致）。
+插件的唯一有效触发范围是 **C2–C6（MIDI 36–84，含两端）**。屏幕键盘虽然显示完整 88 键，但范围外按键会灰化且不响应；来自 DAW 的范围外 note-on/note-off 也会被过滤。
 
 这是一个「实用音域」约定而非技术边界：音高是相对 START FREQ 移调的，所以同一个 MIDI 音符的实际频率取决于该参数。默认 0.3 时 C2 约为 48 Hz、C6 约为 764 Hz。
 
@@ -139,7 +152,7 @@ Windows 需 MSVC 或 MinGW；Linux 需 ALSA/JACK/X11 等开发库（见 `.github
 
 合成核心 `SfxrVoice` 是对原版 `ResetSample()` 与 `SynthSample()` 的逐句移植（见 `reference/sfxr-sdl-1.2.1/main.cpp`），主要改造：
 
-- **采样率无关**：原版所有常数都按 44100 Hz 校准，因此按各自的量纲重新缩放（长度 × `sr/44100`、一阶速率 ÷ `sr/44100`、二阶速率 ÷ `(sr/44100)²`），涵盖音高、滑音、占空比扫描、滤波器系数与扫描、颤音、包络、repeat、arpeggio 与 phaser 延时。`tests/RenderTest.cpp` 在 44.1/48/88.2/96/192 kHz 下逐项验证
+- **采样率适配**：原版常数按 44100 Hz 校准，当前实现按量纲缩放音高、滑音、占空比扫描、滤波器、颤音、包络、repeat、arpeggio 与 phaser 延时。常驻测试直接覆盖音高、包络、颤音、滑音和占空比扫描；滤波器、phaser、repeat、arpeggio 与 vibrato delay 尚缺逐项跨采样率回归测试
 - **MIDI 移调**：`fperiod *= 2^(-(note-69)/12)`，note 69 对应原始参数
 - **复音状态**：原版的全局变量全部下沉为 voice 实例字段
 - **力度**：MIDI velocity 缩放输出增益
@@ -158,13 +171,13 @@ ctest --test-dir build --output-on-failure
 
 覆盖内容：
 
-- 音高、包络时长、颤音速率、滑音、占空比扫描在 **44.1 / 48 / 88.2 / 96 / 192 kHz 下必须一致**（这些常数在原版中全部按 44100 Hz 校准）
+- 音高、包络时长、颤音速率、温和滑音、占空比扫描在 **44.1 / 48 / 88.2 / 96 / 192 kHz** 下的一致性
 - MIDI 移调符合十二平均律（±1 八度、+7 半音）
-- 遍历 7 类预设生成器与 randomize/mutate 共 692 组参数，断言**输出永不出现 NaN/Inf，且不越过 0 dBFS 限幅**
-- 越界参数的折叠与原版**逐位等价**（平方使用的参数取 `abs()` 后渲染输出完全相同），且 10850 组生成参数全部落在取值域内
+- 遍历 7 类预设生成器与 randomize/mutate 共 692 组参数，检查**单个 voice** 的输出有限且不越过其 ±1 限幅；该测试不覆盖恶意 `.sfs` 中的 NaN/Inf 或多 voice 混音峰值
+- 验证被合成器平方使用的越界参数在取 `abs()` 后渲染结果逐位相同，并检查 10850 组生成参数全部落在取值域内
 - 输出电平与原版 WAV 导出一致，且随 Output Level 线性变化
 - One-Shot 自行结束、Sustain 模式持续到 note-off
-- `.sfs` 读写往返一致，截断文件与未知版本号被拒绝
+- `.sfs` v102 的部分代表字段可往返，截断文件与未知版本号会被拒绝；v100/v101 和全部字段的 golden fixture 尚未加入测试
 
 ## 捐赠
 
