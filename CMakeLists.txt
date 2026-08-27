@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.24)
 
 project(SfxrVsti VERSION 1.0.0)
 
+enable_testing()
+
 set(JUCE_BUILD_EXTRAS OFF CACHE BOOL "Disable extras" FORCE)
 set(JUCE_BUILD_EXAMPLES OFF CACHE BOOL "Disable examples" FORCE)
 
@@ -60,7 +62,7 @@ target_link_libraries(SfxrVsti PRIVATE
 # replacement and can use the modern parameter ID scheme.
 target_compile_definitions(SfxrVsti PRIVATE JUCE_VST3_CAN_REPLACE_VST2=0)
 
-# Offline render test (verifies the synthesis engine independently of the DAW).
+# Offline engine test suite (verifies the DSP independently of any DAW).
 juce_add_console_app(SfxrRenderTest
     PRODUCT_NAME "SfxrRenderTest"
 )
@@ -75,3 +77,6 @@ target_sources(SfxrRenderTest
 )
 target_compile_features(SfxrRenderTest PRIVATE cxx_std_17)
 target_link_libraries(SfxrRenderTest PRIVATE juce::juce_audio_basics)
+
+add_test(NAME EngineTests COMMAND SfxrRenderTest)
+
