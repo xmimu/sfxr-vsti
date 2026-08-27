@@ -118,9 +118,16 @@ namespace SfxrPresetFile
         if (!out.openedOk())
             return false;
 
-        auto writeInt   = [&] (int v)   { return out.write (&v, sizeof (v)); };
-        auto writeFloat = [&] (float v) { return out.write (&v, sizeof (v)); };
-        auto writeBool  = [&] (bool v)  { return out.write (&v, sizeof (v)); };
+        // FileOutputStream positions itself at the end of an existing file, so
+        // without this an overwrite would append a second record and load()
+        // would keep reading the old sound back.
+        if (! out.setPosition (0) || ! out.truncate().wasOk())
+            return false;
+
+        bool ok = true;
+        auto writeInt   = [&] (int v)   { ok = ok && out.write (&v, sizeof (v)); };
+        auto writeFloat = [&] (float v) { ok = ok && out.write (&v, sizeof (v)); };
+        auto writeBool  = [&] (bool v)  { ok = ok && out.write (&v, sizeof (v)); };
 
         writeInt (102);
         writeInt (p.wave_type);
@@ -158,6 +165,10 @@ namespace SfxrPresetFile
         writeFloat (p.arp_speed);
         writeFloat (p.arp_mod);
 
-        return true;
+        // Flush explicitly so a full disk or a read-only volume is reported here
+        // rather than being swallowed by the destructor.
+        out.flush();
+
+        return ok && out.getStatus().wasOk();
     }
 }
