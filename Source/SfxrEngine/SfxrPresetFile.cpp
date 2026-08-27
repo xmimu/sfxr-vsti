@@ -2,12 +2,6 @@
 
 namespace SfxrPresetFile
 {
-    namespace
-    {
-        float unipolar (float v) { return juce::jlimit (0.0f, 1.0f, v); }
-        float bipolar  (float v) { return juce::jlimit (-1.0f, 1.0f, v); }
-    }
-
     bool load (const juce::File& file, SfxrParams& p)
     {
         juce::FileInputStream in (file);
@@ -76,38 +70,11 @@ namespace SfxrPresetFile
         if (! allOk)
             return false;
 
-        // Clamp to the domain documented in SfxrParams.h in case the file was
-        // corrupted or hand-edited with out-of-range values.
-        p.sound_vol     = unipolar (p.sound_vol);
-        p.base_freq     = unipolar (p.base_freq);
-        p.freq_limit    = unipolar (p.freq_limit);
-        p.freq_ramp     = bipolar  (p.freq_ramp);
-        p.freq_dramp    = bipolar  (p.freq_dramp);
-        p.duty          = unipolar (p.duty);
-        p.duty_ramp     = bipolar  (p.duty_ramp);
-
-        p.vib_strength  = unipolar (p.vib_strength);
-        p.vib_speed     = unipolar (p.vib_speed);
-        p.vib_delay     = unipolar (p.vib_delay);
-
-        p.env_attack    = unipolar (p.env_attack);
-        p.env_sustain   = unipolar (p.env_sustain);
-        p.env_decay     = unipolar (p.env_decay);
-        p.env_punch     = unipolar (p.env_punch);
-
-        p.lpf_resonance = unipolar (p.lpf_resonance);
-        p.lpf_freq      = unipolar (p.lpf_freq);
-        p.lpf_ramp      = bipolar  (p.lpf_ramp);
-        p.hpf_freq      = unipolar (p.hpf_freq);
-        p.hpf_ramp      = bipolar  (p.hpf_ramp);
-
-        p.pha_offset    = bipolar  (p.pha_offset);
-        p.pha_ramp      = bipolar  (p.pha_ramp);
-
-        p.repeat_speed  = unipolar (p.repeat_speed);
-
-        p.arp_speed     = unipolar (p.arp_speed);
-        p.arp_mod       = bipolar  (p.arp_mod);
+        // Fold into the documented domain. The original sfxr writes whatever
+        // Randomize left in its globals, so real .sfs files do contain values
+        // outside these ranges; foldIntoDomain() reproduces the sound they had
+        // there instead of flattening them to zero.
+        p.foldIntoDomain();
 
         return true;
     }

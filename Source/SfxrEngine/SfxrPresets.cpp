@@ -194,6 +194,8 @@ void generatePreset (SfxrParams& p, PresetCategory c, juce::Random& r)
         case PresetCategory::Count:
             break;
     }
+
+    p.foldIntoDomain();
 }
 
 void randomize (SfxrParams& p, juce::Random& r)
@@ -234,6 +236,11 @@ void randomize (SfxrParams& p, juce::Random& r)
     p.repeat_speed = frnd (r, 2.0f) - 1.0f;
     p.arp_speed = frnd (r, 2.0f) - 1.0f;
     p.arp_mod   = frnd (r, 2.0f) - 1.0f;
+
+    // The assignments above are a literal port and deliberately overshoot the
+    // documented ranges, exactly as the original does. Fold them back in a way
+    // that keeps the sound rather than letting the parameter tree clamp them.
+    p.foldIntoDomain();
 }
 
 void mutate (SfxrParams& p, juce::Random& r)
@@ -260,4 +267,7 @@ void mutate (SfxrParams& p, juce::Random& r)
     if (irnd (r, 1)) p.repeat_speed += frnd (r, 0.1f) - 0.05f;
     if (irnd (r, 1)) p.arp_speed    += frnd (r, 0.1f) - 0.05f;
     if (irnd (r, 1)) p.arp_mod      += frnd (r, 0.1f) - 0.05f;
+
+    // Repeated nudges drift out of range over time.
+    p.foldIntoDomain();
 }

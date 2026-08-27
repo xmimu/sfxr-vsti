@@ -731,6 +731,127 @@ static void testStolenVoiceDoesNotReleaseTheWrongNote()
 }
 
 //==============================================================================
+static void testOutOfDomainFoldingPreservesTheSound()
+{
+    section ("folding out-of-domain values preserves the sound");
+
+    // Renders raw (unfolded) parameters, which SfxrVoice accepts as-is.
+    auto renderRaw = [] (const SfxrParams& p)
+    {
+        SfxrVoice v;
+        v.setSeed (4242);
+        v.start (p, 44100.0, 69, 1.0f, true);
+        std::vector<float> buf (22050, 0.0f);
+        v.render (buf.data(), (int) buf.size());
+        return buf;
+    };
+
+    auto identical = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); i++)
+            if (a[i] != b[i]) return false;
+        return true;
+    };
+
+    SfxrParams base = toneParams();
+    base.env_attack = 0.1f; base.env_sustain = 0.3f; base.env_decay = 0.3f;
+    base.vib_strength = 0.6f; base.vib_speed = 0.5f; base.vib_delay = 0.3f;
+    base.lpf_freq = 0.7f; base.lpf_resonance = 0.4f; base.hpf_freq = 0.2f;
+
+    // Group 1: squared by the synth, so a negative value must render exactly
+    // like its magnitude. This is what makes abs() the right fold rather than
+    // clamping to zero.
+    struct Field { const char* name; float SfxrParams::* member; };
+    const Field squared[] = {
+        { "base_freq",     &SfxrParams::base_freq },
+        { "vib_speed",     &SfxrParams::vib_speed },
+        { "vib_delay",     &SfxrParams::vib_delay },
+        { "env_attack",    &SfxrParams::env_attack },
+        { "env_sustain",   &SfxrParams::env_sustain },
+        { "env_decay",     &SfxrParams::env_decay },
+        { "lpf_resonance", &SfxrParams::lpf_resonance },
+        { "hpf_freq",      &SfxrParams::hpf_freq },
+    };
+
+    for (const auto& f : squared)
+    {
+        SfxrParams negative = base;
+        const float magnitude = base.*(f.member) > 0.05f ? base.*(f.member) : 0.4f;
+        negative.*(f.member) = -magnitude;
+
+        SfxrParams folded = negative;
+        folded.foldIntoDomain();
+
+        check (std::abs (folded.*(f.member) - magnitude) < 1.0e-9f,
+               juce::String (f.name) + " folds to its magnitude");
+        check (identical (renderRaw (negative), renderRaw (folded)),
+               juce::String (f.name) + " = -x renders identically to +x");
+    }
+
+    // Group 2: sign matters to the synth, but clamping to 0 lands on the same
+    // sound anyway. Verify that rather than assuming it.
+    {
+        SfxrParams negDuty = base;  negDuty.wave_type = 0;  negDuty.duty = -0.3f;
+        SfxrParams zeroDuty = negDuty; zeroDuty.duty = 0.0f;
+        check (identical (renderRaw (negDuty), renderRaw (zeroDuty)),
+               "a negative duty renders like duty = 0 (square_duty is clamped)");
+
+        SfxrParams negVib = base; negVib.vib_strength = -0.5f;
+        SfxrParams zeroVib = negVib; zeroVib.vib_strength = 0.0f;
+        check (identical (renderRaw (negVib), renderRaw (zeroVib)),
+               "a negative vibrato depth renders like depth = 0");
+
+        SfxrParams negLpf = base; negLpf.lpf_freq = -0.4f;
+        SfxrParams zeroLpf = negLpf; zeroLpf.lpf_freq = 0.0f;
+        check (identical (renderRaw (negLpf), renderRaw (zeroLpf)),
+               "a negative LP cutoff renders like cutoff = 0");
+    }
+
+    // Whatever the generators produce must now be inside the documented domain,
+    // so the parameter tree has nothing left to clamp.
+    {
+        juce::Random rng (777);
+        int violations = 0, sets = 0;
+
+        auto verify = [&] (const SfxrParams& p)
+        {
+            auto uni = [&] (float v) { if (v < 0.0f || v > 1.0f) violations++; };
+            auto bi  = [&] (float v) { if (v < -1.0f || v > 1.0f) violations++; };
+            uni (p.base_freq);  uni (p.freq_limit);   uni (p.duty);
+            uni (p.vib_strength); uni (p.vib_speed);  uni (p.vib_delay);
+            uni (p.env_attack); uni (p.env_sustain);  uni (p.env_decay);
+            uni (p.env_punch);  uni (p.lpf_freq);     uni (p.lpf_resonance);
+            uni (p.hpf_freq);   uni (p.repeat_speed); uni (p.arp_speed);
+            uni (p.sound_vol);
+            bi (p.freq_ramp);   bi (p.freq_dramp);    bi (p.duty_ramp);
+            bi (p.lpf_ramp);    bi (p.hpf_ramp);      bi (p.pha_offset);
+            bi (p.pha_ramp);    bi (p.arp_mod);
+            if (p.wave_type < 0 || p.wave_type > 3) violations++;
+            sets++;
+        };
+
+        for (int i = 0; i < 500; i++)
+        {
+            SfxrParams p;
+            randomize (p, rng);
+            verify (p);
+            for (int m = 0; m < 20; m++) { mutate (p, rng); verify (p); }
+        }
+        for (int i = 0; i < (int) PresetCategory::Count; i++)
+            for (int rep = 0; rep < 50; rep++)
+            {
+                SfxrParams p;
+                generatePreset (p, (PresetCategory) i, rng);
+                verify (p);
+            }
+
+        std::printf ("  checked %d generated parameter sets\n", sets);
+        check (violations == 0, juce::String (violations) + " generated values fell outside the domain");
+    }
+}
+
+//==============================================================================
 int main()
 {
     std::printf ("SfxrVsti engine tests\n");
@@ -747,6 +868,7 @@ int main()
     testPresetFileRoundTrip();
     testSampleAccurateNoteOnset();
     testStolenVoiceDoesNotReleaseTheWrongNote();
+    testOutOfDomainFoldingPreservesTheSound();
 
     std::printf ("\n%d checks, %d failure(s)\n", checks, failures);
     return failures == 0 ? 0 : 1;

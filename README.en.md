@@ -160,7 +160,8 @@ It covers:
 
 - Pitch, envelope duration, vibrato rate, frequency slide and duty sweep must be **identical at 44.1 / 48 / 88.2 / 96 / 192 kHz** (all of these constants are calibrated for 44100 Hz in the original)
 - MIDI transposition follows equal temperament (+/-1 octave, +7 semitones)
-- A sweep of 580 parameter sets across all 7 preset generators plus randomize/mutate, asserting the output **never contains NaN/Inf and never exceeds the 0 dBFS clamp**
+- A sweep of 692 parameter sets across all 7 preset generators plus randomize/mutate, asserting the output **never contains NaN/Inf and never exceeds the 0 dBFS clamp**
+- Out-of-domain folding is **bit-identical** to the original (parameters the synth squares render exactly the same after abs()), and 10850 generated parameter sets all land inside the domain
 - Output level matches the original WAV export and scales linearly with Output Level
 - One-shot notes end by themselves; sustained notes hold until note-off
 - `.sfs` files round-trip; truncated files and unknown versions are rejected
