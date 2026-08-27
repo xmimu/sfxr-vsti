@@ -27,65 +27,53 @@ juce::AudioProcessorValueTreeState::ParameterLayout SfxrVstiAudioProcessor::crea
 
     AudioProcessorValueTreeState::ParameterLayout layout;
 
+    // sfxr treats every one of these as a continuous float. The convenience
+    // AudioParameterFloat constructor would quantise them to a 0.01 interval,
+    // which is coarse enough to audibly change a sound loaded from a .sfs file
+    // (a base_freq of 0.4372 would snap to 0.44), so specify the ranges
+    // explicitly with no snapping.
+    auto addFloat = [&layout] (const juce::String& id, const juce::String& name,
+                               float minValue, float maxValue, float defaultValue)
+    {
+        layout.add (std::make_unique<AudioParameterFloat> (
+            id, name, NormalisableRange<float> (minValue, maxValue), defaultValue));
+    };
+
     layout.add (std::make_unique<AudioParameterChoice> (ParamID::wave_type, "Waveform",
                                                        StringArray { "Square", "Sawtooth", "Sine", "Noise" }, 0));
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_attack, "Attack Time",
-                                                  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_sustain, "Sustain Time",
-                                                  0.0f, 1.0f, 0.3f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_punch, "Sustain Punch",
-                                                  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::env_decay, "Decay Time",
-                                                  0.0f, 1.0f, 0.4f));
+    addFloat (ParamID::env_attack, "Attack Time", 0.0f, 1.0f, 0.0f);
+    addFloat (ParamID::env_sustain, "Sustain Time", 0.0f, 1.0f, 0.3f);
+    addFloat (ParamID::env_punch, "Sustain Punch", 0.0f, 1.0f, 0.0f);
+    addFloat (ParamID::env_decay, "Decay Time", 0.0f, 1.0f, 0.4f);
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::base_freq, "Start Frequency",
-                                                  0.0f, 1.0f, 0.3f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::freq_limit, "Min Frequency",
-                                                  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::freq_ramp, "Slide",
-                                                  -1.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::freq_dramp, "Delta Slide",
-                                                  -1.0f, 1.0f, 0.0f));
+    addFloat (ParamID::base_freq, "Start Frequency", 0.0f, 1.0f, 0.3f);
+    addFloat (ParamID::freq_limit, "Min Frequency", 0.0f, 1.0f, 0.0f);
+    addFloat (ParamID::freq_ramp, "Slide", -1.0f, 1.0f, 0.0f);
+    addFloat (ParamID::freq_dramp, "Delta Slide", -1.0f, 1.0f, 0.0f);
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::vib_strength, "Vibrato Depth",
-                                                  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::vib_speed, "Vibrato Speed",
-                                                  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::vib_delay, "Vibrato Delay",
-                                                  0.0f, 1.0f, 0.0f));
+    addFloat (ParamID::vib_strength, "Vibrato Depth", 0.0f, 1.0f, 0.0f);
+    addFloat (ParamID::vib_speed, "Vibrato Speed", 0.0f, 1.0f, 0.0f);
+    addFloat (ParamID::vib_delay, "Vibrato Delay", 0.0f, 1.0f, 0.0f);
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::arp_mod, "Change Amount",
-                                                  -1.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::arp_speed, "Change Speed",
-                                                  0.0f, 1.0f, 0.0f));
+    addFloat (ParamID::arp_mod, "Change Amount", -1.0f, 1.0f, 0.0f);
+    addFloat (ParamID::arp_speed, "Change Speed", 0.0f, 1.0f, 0.0f);
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::duty, "Square Duty",
-                                                  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::duty_ramp, "Duty Sweep",
-                                                  -1.0f, 1.0f, 0.0f));
+    addFloat (ParamID::duty, "Square Duty", 0.0f, 1.0f, 0.0f);
+    addFloat (ParamID::duty_ramp, "Duty Sweep", -1.0f, 1.0f, 0.0f);
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::repeat_speed, "Repeat Speed",
-                                                  0.0f, 1.0f, 0.0f));
+    addFloat (ParamID::repeat_speed, "Repeat Speed", 0.0f, 1.0f, 0.0f);
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::pha_offset, "Phaser Offset",
-                                                  -1.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::pha_ramp, "Phaser Sweep",
-                                                  -1.0f, 1.0f, 0.0f));
+    addFloat (ParamID::pha_offset, "Phaser Offset", -1.0f, 1.0f, 0.0f);
+    addFloat (ParamID::pha_ramp, "Phaser Sweep", -1.0f, 1.0f, 0.0f);
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::lpf_freq, "LP Cutoff",
-                                                  0.0f, 1.0f, 1.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::lpf_ramp, "LP Cutoff Sweep",
-                                                  -1.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::lpf_resonance, "LP Resonance",
-                                                  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::hpf_freq, "HP Cutoff",
-                                                  0.0f, 1.0f, 0.0f));
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::hpf_ramp, "HP Cutoff Sweep",
-                                                  -1.0f, 1.0f, 0.0f));
+    addFloat (ParamID::lpf_freq, "LP Cutoff", 0.0f, 1.0f, 1.0f);
+    addFloat (ParamID::lpf_ramp, "LP Cutoff Sweep", -1.0f, 1.0f, 0.0f);
+    addFloat (ParamID::lpf_resonance, "LP Resonance", 0.0f, 1.0f, 0.0f);
+    addFloat (ParamID::hpf_freq, "HP Cutoff", 0.0f, 1.0f, 0.0f);
+    addFloat (ParamID::hpf_ramp, "HP Cutoff Sweep", -1.0f, 1.0f, 0.0f);
 
-    layout.add (std::make_unique<AudioParameterFloat> (ParamID::master_vol, "Output Level",
-                                                  0.0f, 1.0f, 0.5f));
+    addFloat (ParamID::master_vol, "Output Level", 0.0f, 1.0f, 0.5f);
 
     layout.add (std::make_unique<AudioParameterBool> (ParamID::mono,     "Mono",    false));
     layout.add (std::make_unique<AudioParameterBool> (ParamID::one_shot, "One-Shot", true));
