@@ -10,11 +10,11 @@
 
 - **忠实移植** sfxr 1.2.1 的合成核心（方波/锯齿/正弦/噪声 + LP/HP 滤波 + Phaser + 8x 过采样 + 重复触发 + 琶音）
 - **复音**：8 个 voice，可切换 MONO 单音模式
-- **MIDI 移调**：A4（note 69）对应「Start Frequency」旋钮的原值，其余音符按半音移调
+- **MIDI 移调**：note 69 为根音，对应「Start Frequency」旋钮的原值，其余音符按半音移调（根音的实际频率由 Start Frequency 决定，并非 440 Hz 的标准 A4）
 - **两种触发模式**：One-Shot（默认，像鼓一样播完）与 Sustain（按住持续、松开释放）
-- **全部 24 个 sfxr 参数** DAW 可自动化
+- **全部 24 个 sfxr 参数** 均暴露给宿主（注意：参数在 note-on 时锁存，与原版 sfxr 一致，自动化不会改变已发声音符）
 - **经典 sfxr 外观**：米黄底 + 橙色滑条，7 个预设生成器 + RANDOMIZE / MUTATE
-- **虚拟 MIDI 键盘**（全 88 键，有效区外灰化禁用，A4 高亮）+ 实时波形示波器
+- **虚拟 MIDI 键盘**（全 88 键，有效区外灰化禁用，根音高亮）+ 实时波形示波器
 - **.sfs 文件兼容**：可读写原版 sfxr 的参数文件（版本 102）
 
 ## 目录结构
@@ -104,11 +104,15 @@ Windows 需 MSVC 或 MinGW；Linux 需 ALSA/JACK/X11 等开发库（见 `.github
 - **GENERATOR 列**（左）：7 个预设类别（PICKUP/COIN、LASER/SHOOT、EXPLOSION、POWERUP、HIT/HURT、JUMP、BLIP/SELECT）+ PLAY SOUND / RANDOMIZE / MUTATE / LOAD SOUND / SAVE SOUND
 - **MANUAL SETTINGS**（右）：全部参数按 ENVELOPE / FREQUENCY / VIBRATO / SQUARE DUTY / REPEAT / ARPEGGIO / PHASER / FILTERS 分组
 - **波形示波器**（底部）：实时显示输出波形
-- **虚拟键盘**（底部）：88 键，点击/拖拽触发；A4 橙色高亮；C2–C6 之外灰化且不响应
+- **虚拟键盘**（底部）：88 键，点击/拖拽触发；根音（note 69）橙色高亮并标注 ROOT；C2–C6 之外灰化且不响应
 
 ### 有效音符范围
 
-合成以 A4（note 69）为根音，其余音符按 `2^(-(note-69)/12)` 移调。有效触发范围为 **C2–C6（MIDI 36–84）**——更低基本听不见，更高易使噪声/爆炸类音效失真。范围外音符在 UI 上灰化、不响应鼠标，DAW MIDI 事件亦被忽略。
+合成以 note 69 为根音，其余音符按 `2^(-(note-69)/12)` 移调。根音本身的频率取决于「Start Frequency」（默认 0.3 时约 321 Hz），因此键盘上的音名仅供定位，不代表标准音高。
+
+有效触发范围为 **C2–C6（MIDI 36–84）**，范围外的音符在 UI 上灰化、不响应鼠标，DAW MIDI 事件同样被忽略（两者行为一致）。
+
+这是一个「实用音域」约定而非技术边界：音高是相对 START FREQ 移调的，所以同一个 MIDI 音符的实际频率取决于该参数。默认 0.3 时 C2 约为 48 Hz、C6 约为 764 Hz。
 
 ### 参数
 
@@ -116,7 +120,7 @@ Windows 需 MSVC 或 MinGW；Linux 需 ALSA/JACK/X11 等开发库（见 `.github
 |------|------|------|
 | Waveform | Square/Saw/Sine/Noise | 基础波形 |
 | Attack / Sustain / Punch / Decay Time | 0–1 | 音量包络 |
-| Start Frequency | 0–1 | 起始频率（根音 A4 对应此值） |
+| Start Frequency | 0–1 | 起始频率（note 69 对应此值） |
 | Min Frequency | 0–1 | 频率下限（向下滑音触底即停止） |
 | Slide / Delta Slide | -1–1 | 频率滑移 / 滑移变化率 |
 | Vibrato Depth / Speed / Delay | 0–1 | 颤音 |
@@ -134,21 +138,31 @@ Windows 需 MSVC 或 MinGW；Linux 需 ALSA/JACK/X11 等开发库（见 `.github
 
 合成核心 `SfxrVoice` 是对原版 `ResetSample()` 与 `SynthSample()` 的逐句移植（见 `reference/sfxr-sdl-1.2.1/main.cpp`），主要改造：
 
-- **采样率无关**：包络/重复/琶音/颤音等时间常数按 `sampleRate/44100` 缩放
-- **MIDI 移调**：`fperiod *= 2^(-(note-69)/12)`，A4 对应原始参数
+- **采样率无关**：原版所有常数都按 44100 Hz 校准，因此按各自的量纲重新缩放（长度 × `sr/44100`、一阶速率 ÷ `sr/44100`、二阶速率 ÷ `(sr/44100)²`），涵盖音高、滑音、占空比扫描、滤波器系数与扫描、颤音、包络、repeat、arpeggio 与 phaser 延时。`tests/RenderTest.cpp` 在 44.1/48/88.2/96/192 kHz 下逐项验证
+- **MIDI 移调**：`fperiod *= 2^(-(note-69)/12)`，note 69 对应原始参数
 - **复音状态**：原版的全局变量全部下沉为 voice 实例字段
 - **力度**：MIDI velocity 缩放输出增益
 - **`vib_delay` 生效**：原版该参数从未使用，现实现为「延迟后淡入」
 - **Sustain 模式**：One-Shot 关闭时，音符停在 Sustain 阶段直到 note-off
+- **包络除法判零**：原版在阶段长度为 0 时 0/0 得到 NaN，写 WAV 无妨，但送进 DAW 母线不可接受。判零而不是给长度加下限，保证非退化声音与原版逐样本一致（44.1 kHz 下与移植前 97% 逐位相同，最大偏差 8.5e-07，仅来自系数改用 double 计算）
 
 ## 测试
 
-`tests/RenderTest.cpp` 离线渲染引擎输出，验证波形电平与移调正确性：
+`tests/RenderTest.cpp` 是一组带断言的离线测试，不依赖宿主，CI 每次构建都会运行：
 
 ```bash
-cmake --build build --target SfxrRenderTest
-./build/SfxrRenderTest_artefacts/Release/SfxrRenderTest
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
+
+覆盖内容：
+
+- 音高、包络时长、颤音速率、滑音、占空比扫描在 **44.1 / 48 / 88.2 / 96 / 192 kHz 下必须一致**（这些常数在原版中全部按 44100 Hz 校准）
+- MIDI 移调符合十二平均律（±1 八度、+7 半音）
+- 遍历 7 类预设生成器与 randomize/mutate 共 580 组参数，断言**输出永不出现 NaN/Inf，且不越过 0 dBFS 限幅**
+- 输出电平与原版 WAV 导出一致，且随 Output Level 线性变化
+- One-Shot 自行结束、Sustain 模式持续到 note-off
+- `.sfs` 读写往返一致，截断文件与未知版本号被拒绝
 
 ## 捐赠
 

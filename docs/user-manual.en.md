@@ -128,7 +128,7 @@ Controls how loudness evolves over time, shaping the attack–sustain–decay co
 
 | Parameter | Range | Description |
 |-----------|-------|-------------|
-| START FREQ | 0–1 | start pitch; A4 (note 69) maps to this value |
+| START FREQ | 0–1 | start pitch; the root note (69) plays this value |
 | MIN FREQ | 0–1 | lower pitch limit; the sound stops when a downward slide reaches it |
 | SLIDE | ± | pitch slide rate (positive = up, negative = down) |
 | DELTA SLIDE | ± | rate of change of the slide (slide acceleration) |
@@ -206,7 +206,7 @@ Other actions:
 
 - **RANDOMIZE**: fully randomize all parameters
 - **MUTATE**: apply small random perturbations to the current parameters
-- **PLAY SOUND**: immediately audition the current sound at A4
+- **PLAY SOUND**: immediately audition the current sound at the root note (69)
 
 ---
 
@@ -215,12 +215,16 @@ Other actions:
 The bottom shows the full 88-key keyboard (A0–C8):
 
 - **White/black** keys are clickable; press and drag to glissando
-- **A4** is highlighted in orange with an "A4" label — it is the reference pitch for the START FREQ knob
-- Keys outside **C2–C6** are greyed out, ignore mouse clicks, and corresponding DAW MIDI notes are dropped
+- The **root note** (69) is highlighted in orange and labelled "ROOT" — it plays the START FREQ knob's value unmodified. Its actual frequency therefore depends on START FREQ (about 321 Hz at the default of 0.3), not on 440 Hz concert pitch, so the key names are positional landmarks only
+- Keys outside **C2–C6** are greyed out and ignore mouse clicks; incoming DAW MIDI for those notes is ignored too, so both behave identically
 
-### Why C2–C6?
+### Why limit it to C2–C6?
 
-The synth is rooted at A4 and transposes in semitones. Below C2 (~6 Hz) is essentially inaudible, and above C6 noise/explosion-type sounds tend to distort, so the valid trigger range is C2–C6 (MIDI 36–84).
+The synth is rooted at note 69 and transposes in semitones, and every MIDI note (0-127) sounds.
+
+This is a usable-range convention rather than a technical boundary. Pitch is transposed in semitones relative to START FREQ, so the actual frequency of a given MIDI note depends on that parameter: at the default of 0.3, C2 is about 48 Hz, the root about 321 Hz and C6 about 764 Hz. Transpose much further down and the fundamental falls below hearing; much further up and noise/explosion-type sounds tend to distort. C2-C6 is therefore taken as the default usable window.
+
+If you set START FREQ very low or very high the usable range shifts as a whole, and C2-C6 may no longer be the best window for it.
 
 ---
 
@@ -245,13 +249,15 @@ The live oscilloscope above the keyboard shows the current output waveform, maki
 
 ### MIDI performance
 
-- Play from a MIDI keyboard / piano roll; pitch transposes around the A4 root
+- Play from a MIDI keyboard / piano roll; pitch transposes around the note-69 root
 - Velocity controls the output level
 - 8-voice polyphony supports chords; enable MONO to collapse to a single voice
 
 ### Parameter automation
 
-All synthesis parameters are exposed to the host and can be recorded/drawn on automation tracks. Automating SLIDE, DELTA SLIDE or REPEAT SPEED in real time is especially fun for evolving effects.
+All synthesis parameters are exposed to the host and can be recorded/drawn on automation tracks.
+
+Note that, as in the original sfxr, parameters are **latched at note-on**: automation does not alter a note that is already sounding, it takes effect from the next note onwards. Automating SLIDE, DELTA SLIDE or REPEAT SPEED over a dense note sequence is therefore an effective way to get evolving effects.
 
 ### Trigger-mode tips
 
@@ -263,13 +269,13 @@ All synthesis parameters are exposed to the host and can be recorded/drawn on au
 ## 10. FAQ
 
 **Q: The on-screen keyboard makes no sound?**
-Make sure Output Level is non-zero and the note is within the C2–C6 valid range (keys outside it are greyed out and disabled).
+Make sure Output Level is non-zero and that the key is within C2-C6 (keys outside it are greyed out and disabled).
 
 **Q: Clicking a preset plays the previous sound?**
 The preset updates the parameters and the preview uses the latest values. If it still misbehaves, check that the host is running its audio callback normally.
 
-**Q: Why don't some notes (below C2 / above C6) sound?**
-This is by design — the valid note range is fixed at C2–C6, and MIDI events outside it are filtered.
+**Q: Why don't notes below C2 / above C6 sound?**
+The trigger range is fixed at C2-C6 (MIDI 36-84); MIDI events outside it are filtered and those keys are greyed out. It is a usable-range convention: pitch is transposed relative to START FREQ, so too far down puts the fundamental below hearing and too far up approaches the sample-rate ceiling and distorts.
 
 **Q: After loading a .sfs the Mono/One-Shot mode didn't change?**
 `.sfs` doesn't contain plugin-level settings such as Mono or One-Shot; set those separately in the UI. Output Level is saved/loaded along with the `.sfs` file.

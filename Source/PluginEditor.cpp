@@ -123,11 +123,14 @@ namespace
     };
 
     // A MidiKeyboardComponent that shows the full 88-key range, highlights the
-    // root note (A4) and greys out + disables every key outside the valid range.
+    // root note and greys out + disables every key outside the valid range.
     class SfxrMidiKeyboardComponent : public juce::MidiKeyboardComponent
     {
     public:
-        static constexpr int rootNote = 69; // A4
+        // Note 69 plays the Start Frequency parameter unmodified, so it is the
+        // root of the transposition -- not a 440 Hz concert A. Labelling it "A4"
+        // would imply a pitch the synth does not actually produce.
+        static constexpr int rootNote = 69;
 
         using juce::MidiKeyboardComponent::MidiKeyboardComponent;
 
@@ -200,7 +203,7 @@ namespace
         juce::String getWhiteNoteText (int midiNoteNumber) override
         {
             if (midiNoteNumber == rootNote)
-                return "A4";
+                return "ROOT";
 
             return juce::MidiKeyboardComponent::getWhiteNoteText (midiNoteNumber);
         }
@@ -416,7 +419,7 @@ void SfxrVstiAudioProcessorEditor::buildInterface()
     addSlider (ParamID::hpf_freq,      "HP CUTOFF",    628, 284, 130);
     addSlider (ParamID::hpf_ramp,      "HP SWEEP",     628, 304, 130);
 
-    addSectionHeader ("VOLUME", 140, 440);
+    addSectionHeader ("VOLUME", 384, 420);
     addSlider (ParamID::master_vol, "OUTPUT LEVEL", 384, 440, 240);
 
     // ---- waveform display ----
