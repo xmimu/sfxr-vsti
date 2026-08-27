@@ -4,6 +4,20 @@ namespace
 {
     constexpr double PI = 3.14159265358979323846;
     constexpr float  kOutputGain = 0.2f;   // matches the original WAV export level
+
+    // Progress through an envelope stage, in [0, 1].
+    //
+    // A stage can legitimately have zero length (e.g. DECAY TIME at 0), in which
+    // case the original sfxr evaluated 0/0 and emitted a NaN. That is harmless
+    // when the result is quantised into a WAV file, but a NaN reaching a DAW's
+    // mix bus is not -- and the clamp below cannot catch it, because every
+    // comparison against a NaN is false. A zero-length stage is over as soon as
+    // it starts, so treating its progress as 0 gives the intended full-scale
+    // value for the single sample before the stage advances.
+    inline float envProgress (int time, int length) noexcept
+    {
+        return length > 0 ? (float) time / (float) length : 0.0f;
+    }
 }
 
 SfxrVoice::SfxrVoice()
@@ -105,7 +119,10 @@ void SfxrVoice::reset (bool restart)
         vib_delay_len = (int) (params.vib_delay * params.vib_delay * 100000.0 * srScale);
         vib_delay_time = 0;
 
-        // envelope -- lengths in output samples.
+        // envelope -- lengths in output samples. A stage may legitimately be zero
+        // samples long, in which case the render loop skips straight past it; the
+        // division is guarded there rather than padding the length here, so that
+        // non-degenerate sounds stay bit-identical to the original.
         env_vol   = 0.0f;
         env_stage = 0;
         env_time  = 0;
@@ -218,16 +235,16 @@ bool SfxrVoice::render (float* buffer, int numSamples)
         }
 
         if (env_stage == 0)
-            env_vol = (float) env_time / env_length[0];
+            env_vol = envProgress (env_time, env_length[0]);
         else if (env_stage == 1)
         {
             if (!oneShot && !released)
                 env_vol = 1.0f;
             else
-                env_vol = 1.0f + std::pow (1.0f - (float) env_time / env_length[1], 1.0f) * 2.0f * p_env_punch;
+                env_vol = 1.0f + std::pow (1.0f - envProgress (env_time, env_length[1]), 1.0f) * 2.0f * p_env_punch;
         }
         else if (env_stage == 2)
-            env_vol = 1.0f - (float) env_time / env_length[2];
+            env_vol = 1.0f - envProgress (env_time, env_length[2]);
 
         // phaser step
         fphase += fdphase;

@@ -16,6 +16,8 @@
 //   - optional sustain mode (when oneShot is false the note holds until noteOff)
 //   - the original p_vib_delay parameter is now actually used (vibrato fades in
 //     after the delay rather than being applied immediately)
+//   - a zero-length envelope stage no longer divides by zero: the original
+//     emitted a NaN there, which the output clamp cannot catch
 class SfxrVoice
 {
 public:
