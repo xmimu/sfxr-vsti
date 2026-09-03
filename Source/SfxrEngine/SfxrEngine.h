@@ -17,7 +17,6 @@ public:
     // Must be called before process(). maxBlockSize sizes the internal mixing
     // buffer up front so that process() never allocates on the audio thread.
     void prepare (double sampleRate, int maxBlockSize);
-
     void setParams (const SfxrParams& p) { params = p; }
     void setMono (bool mono);
     void setOneShot (bool oneShot)       { oneShotMode = oneShot; }
@@ -27,18 +26,42 @@ public:
     void allNotesOff();
     bool hasActiveVoices() const noexcept;
 
+    // Silences every voice immediately and drops all note mappings. Used for
+    // CC120 All Sound Off, which must also cut one-shots that allNotesOff()
+    // (a normal release) would leave ringing.
+    void allSoundOff();
+
     // Silences every voice immediately and drops all note mappings.
     void reset();
 
     // Renders numSamples of all active voices into audio, starting at
     // startSample. Adds to whatever is already there, so a block can be split
-    // around MIDI events.
+    // around MIDI events. Requests larger than the buffer sized in prepare()
+    // are rendered in chunks internally, so this never allocates or grows the
+    // scratch buffer on the audio thread.
     void render (juce::AudioBuffer<float>& audio, int startSample, int numSamples);
 
     static constexpr int kNumVoices = 8;
 
 private:
     int findFreeVoiceIndex();
+
+    // Renders one contiguous span that fits inside the preallocated scratch
+    // buffer. Called in a loop by render() when a block is oversized.
+    void renderChunk (juce::AudioBuffer<float>& audio, int startSample, int numSamples);
+
+    // ---- monophonic note priority (monoMode only) ----
+    // Last-note priority backed by a held-note stack: the newest still-held note
+    // is the one that sounds. Releasing an older held note must not stop the
+    // sounding voice (it keeps ringing), and releasing the sounding note falls
+    // back by retriggering the newest note that is still held.
+    void monoNoteOn (int midiNote, float velocity);
+    void monoNoteOff (int midiNote);
+    void clearHeldNotes() noexcept { heldCount = 0; }
+
+    std::array<int, 128>   heldStack {};
+    std::array<float, 128> heldVel   {};
+    int heldCount = 0;
 
     // Drops the note -> voice and voice -> note entries for a given voice,
     // so that a later noteOff can never reach a voice that has since been

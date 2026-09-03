@@ -9,8 +9,11 @@ listed below and must be preserved in any redistribution.
 
 The synthesis engine in `Source/SfxrEngine/` is a port of
 [sfxr](http://www.drpetter.se/project_sfxr.html) by Tomas Pettersson (DrPetter),
-originally distributed as `sfxr-sdl-1.2.1`. The original source is kept under
-`reference/` for reference.
+distributed as `sfxr-sdl-1.2.1`. The upstream source is deliberately **not
+redistributed inside this repository**: the local `reference/` copy is excluded
+via `.gitignore` and does not appear in any distributed source archive. Fetch
+`sfxr-sdl-1.2.1` from the author's site above for auditing or rebuilding the
+port.
 
 License: MIT
 

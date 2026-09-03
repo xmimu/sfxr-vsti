@@ -232,6 +232,39 @@ namespace
         return measureFrequency (window);
     }
 
+    // Zero crossings (sign changes, ignoring near-silence) per second in a
+    // time window -- a cheap spectral-brightness proxy for filter/phaser tests.
+    double zeroCrossingsPerSecondIn (const Render& r, double fromSeconds, double toSeconds)
+    {
+        const double sr = r.sampleRate;
+        const int a = juce::jlimit (0, (int) r.samples.size(), (int) (fromSeconds * sr));
+        const int b = juce::jlimit (a, (int) r.samples.size(), (int) (toSeconds * sr));
+
+        int crossings = 0, last = 0;
+        for (int i = a; i < b; i++)
+        {
+            const float s = r.samples[(size_t) i];
+            if (std::abs (s) < 1.0e-5f) continue;
+            const int sign = s > 0.0f ? 1 : -1;
+            if (last != 0 && sign != last) crossings++;
+            last = sign;
+        }
+
+        const double span = (double) (b - a) / sr;
+        return span > 0.0 ? (double) crossings / span : 0.0;
+    }
+
+    // Fundamental frequency measured over a set of sliding windows (for scans
+    // where the frequency changes over time).
+    std::vector<double> probeFrequencies (const Render& r, double winSeconds,
+                                          double fromSeconds, double toSeconds, double stepSeconds)
+    {
+        std::vector<double> out;
+        for (double t = fromSeconds; t + winSeconds <= toSeconds; t += stepSeconds)
+            out.push_back (measureFrequencyBetween (r, t, t + winSeconds));
+        return out;
+    }
+
     SfxrParams toneParams()
     {
         SfxrParams p;
@@ -413,6 +446,186 @@ static void testDutySweepIsSampleRateIndependent()
     const auto r = renderVoice (p, 44100.0, 69, 0.3);
     check (positiveFraction (r, 0.005, 0.025) > positiveFraction (r, 0.15, 0.17),
            "duty sweep moves in the expected direction");
+}
+
+//==============================================================================
+static void testEffectTimeScalingIsSampleRateIndependent()
+{
+    section ("filter/phaser/repeat/arpeggio/vibrato-delay time scaling is sample-rate independent");
+
+    // ---- arpeggio: one step lands between the two measurement windows ----
+    {
+        SfxrParams p = toneParams();
+        p.arp_speed   = 0.5f;
+        p.arp_mod     = 0.6f;               // period *= 0.676 -> frequency *= 1.479
+        p.env_sustain = 1.0f;
+        const double arpFactor = 1.0 - std::pow ((double) p.arp_mod, 2.0) * 0.9;
+        const double expected   = 1.0 / arpFactor;
+
+        for (double sr : kRates)
+        {
+            const auto r = renderVoice (p, sr, 69, 2.6);
+            const double before = measureFrequencyBetween (r, 0.02, 0.07);
+            const double after  = measureFrequencyBetween (r, 0.18, 0.23);
+            const double ratio  = after / before;
+            std::printf ("  arp  sr=%7.0f  %7.2f -> %7.2f Hz  ratio=%.4f (exp %.4f)\n",
+                         sr, before, after, ratio, expected);
+            check (before > 10.0 && after > 10.0, "arpeggio measurable at " + juce::String (sr, 0));
+            if (before > 10.0 && after > 10.0)
+                checkClose (ratio, expected, 0.03, "arpeggio step ratio at " + juce::String (sr, 0));
+        }
+    }
+
+    // ---- repeat re-fires a fast arpeggio, so the pitch climbs in steps whose
+    //      spacing (the repeat period) must be the same at every sample rate ----
+    {
+        SfxrParams p = toneParams();
+        p.arp_speed   = 0.85f;              // arp limit ~10 ms (fires quickly)
+        p.arp_mod     = 0.6f;
+        p.repeat_speed = 0.5f;              // repeat period ~163 ms
+        p.env_sustain = 1.0f;
+        auto measureRatio = [&] (double sr)
+        {
+            const auto r = renderVoice (p, sr, 69, 2.6);
+            const double f1 = measureFrequencyBetween (r, 0.05, 0.08);
+            const double f2 = measureFrequencyBetween (r, 0.23, 0.26);   // one more repeat cycle
+            return std::pair<double, bool> { f2 / f1, f1 > 10.0 && f2 > 10.0 };
+        };
+
+        const auto ref = measureRatio (44100.0);
+        for (double sr : kRates)
+        {
+            const auto m = measureRatio (sr);
+            std::printf ("  rep  sr=%7.0f  per-repeat pitch ratio=%.3f (44.1k %.3f)\n",
+                         sr, m.first, ref.first);
+            check (m.second, "repeat measurable at " + juce::String (sr, 0));
+            check (ref.second, "repeat measurable at 44100");
+            if (m.second && ref.second)
+            {
+                // The exact step pattern is complex (repeat re-arms a fast
+                // arpeggio), but it must be identical at every sample rate.
+                checkClose (m.first, ref.first, 0.06, "repeat trajectory at " + juce::String (sr, 0));
+                check (std::abs (m.first - 1.0) > 0.02, "repeat actually modifies the pitch at " + juce::String (sr, 0));
+            }
+        }
+    }
+
+    // ---- LP sweep: brightness must fade at the same physical rate everywhere.
+    //      Compare the zero-crossing rate at two times against the 44.1 kHz one. ----
+    {
+        SfxrParams p = toneParams();
+        p.wave_type   = 1;                  // saw: bright, so LP closure is audible
+        p.base_freq   = 0.6f;
+        p.lpf_freq    = 1.0f;
+        p.lpf_ramp    = -1.0f;              // close the filter over ~1 s
+        p.env_sustain = 1.0f;
+        p.env_decay   = 0.05f;
+
+        const auto ref = renderVoice (p, 44100.0, 69, 2.6);
+        const double refEarly = zeroCrossingsPerSecondIn (ref, 0.05, 0.10);
+        const double refLate  = zeroCrossingsPerSecondIn (ref, 0.30, 0.35);
+
+        for (double sr : kRates)
+        {
+            const auto r = renderVoice (p, sr, 69, 2.6);
+            const double early = zeroCrossingsPerSecondIn (r, 0.05, 0.10);
+            const double late  = zeroCrossingsPerSecondIn (r, 0.30, 0.35);
+            std::printf ("  lp   sr=%7.0f  zcr %.1f -> %.1f (44.1k %.1f -> %.1f)\n",
+                         sr, early, late, refEarly, refLate);
+            if (early > 1.0 && late > 1.0)
+            {
+                checkClose (early, refEarly, 0.20, "LP early brightness at " + juce::String (sr, 0));
+                checkClose (late,  refLate,  0.20, "LP late brightness at " + juce::String (sr, 0));
+            }
+        }
+    }
+
+    // ---- HP sweep: same idea, opening the high-pass brightens the sound. ----
+    {
+        SfxrParams p = toneParams();
+        p.wave_type   = 1;
+        p.base_freq   = 0.6f;
+        p.hpf_freq    = 0.0f;
+        p.hpf_ramp    = 1.0f;               // open the high-pass over time
+        p.env_sustain = 1.0f;
+        p.env_decay   = 0.05f;
+
+        const auto ref = renderVoice (p, 44100.0, 69, 2.6);
+        const double refEarly = zeroCrossingsPerSecondIn (ref, 0.05, 0.10);
+        const double refLate  = zeroCrossingsPerSecondIn (ref, 0.30, 0.35);
+
+        for (double sr : kRates)
+        {
+            const auto r = renderVoice (p, sr, 69, 2.6);
+            const double early = zeroCrossingsPerSecondIn (r, 0.05, 0.10);
+            const double late  = zeroCrossingsPerSecondIn (r, 0.30, 0.35);
+            std::printf ("  hp   sr=%7.0f  zcr %.1f -> %.1f (44.1k %.1f -> %.1f)\n",
+                         sr, early, late, refEarly, refLate);
+            if (early > 1.0 && late > 1.0)
+            {
+                checkClose (early, refEarly, 0.20, "HP early brightness at " + juce::String (sr, 0));
+                checkClose (late,  refLate,  0.20, "HP late brightness at " + juce::String (sr, 0));
+            }
+        }
+    }
+
+    // ---- phaser: its all-pass notches move at a physical rate; keep a coarse
+    //      brightness check at a fixed point in the sweep. ----
+    {
+        SfxrParams p = toneParams();
+        p.wave_type   = 1;
+        p.base_freq   = 0.4f;
+        p.pha_offset  = 0.5f;
+        p.pha_ramp    = -0.5f;              // sweep the delay position
+        p.env_sustain = 1.0f;
+        p.env_decay   = 0.05f;
+
+        const auto ref = renderVoice (p, 44100.0, 69, 2.6);
+        const double refZcr = zeroCrossingsPerSecondIn (ref, 0.30, 0.45);
+
+        for (double sr : kRates)
+        {
+            const auto r = renderVoice (p, sr, 69, 2.6);
+            const double zcr = zeroCrossingsPerSecondIn (r, 0.30, 0.45);
+            std::printf ("  phaser sr=%7.0f  zcr=%.1f (44.1k %.1f)\n", sr, zcr, refZcr);
+            if (zcr > 1.0 && refZcr > 1.0)
+                checkClose (zcr, refZcr, 0.20, "phaser brightness at " + juce::String (sr, 0));
+        }
+    }
+
+    // ---- vibrato delay: a fade-in means pitch wobble is absent early and
+    //      clearly present after the delay; the boundary must not depend on rate. ----
+    {
+        SfxrParams p = toneParams();
+        p.vib_strength = 0.8f;
+        p.vib_speed    = 0.3f;
+        p.vib_delay    = 0.9f;              // fade-in finishes after ~1.84 s
+        p.env_sustain  = 1.0f;
+        p.env_decay    = 0.05f;
+
+        for (double sr : kRates)
+        {
+            const auto r  = renderVoice (p, sr, 69, 2.6);
+            const auto early = probeFrequencies (r, 0.04, 0.02, 0.18, 0.02);
+            const auto late  = probeFrequencies (r, 0.04, 1.95, 2.10, 0.02);
+
+            double earlyVar = 0.0, lateVar = 0.0;
+            auto varianceOf = [&] (const std::vector<double>& v, double& out)
+            {
+                if (v.size() < 2) return;
+                double mean = 0.0; for (double x : v) mean += x;
+                mean /= (double) v.size();
+                double var = 0.0; for (double x : v) var += (x - mean) * (x - mean);
+                out = var / (double) v.size();
+            };
+            varianceOf (early, earlyVar);
+            varianceOf (late,  lateVar);
+
+            std::printf ("  vib  sr=%7.0f  wobble-var early=%.3f late=%.3f\n", sr, earlyVar, lateVar);
+            check (lateVar > 10.0 * earlyVar, "vibrato appears only after its delay at " + juce::String (sr, 0));
+            check (lateVar > 100.0, "vibrato wobble is clearly present late at " + juce::String (sr, 0));
+        }
+    }
 }
 
 static void testNoNonFiniteOutput()
@@ -710,6 +923,20 @@ static void testPresetFileRoundTrip()
     file.replaceWithData ("\xff\xff\x00\x00", 4);
     check (! SfxrPresetFile::load (file, dummy), "unknown .sfs version is rejected");
 
+    // Only version 102 (what the original sfxr 1.2.1 writes) is supported;
+    // older 100/101 archives are rejected rather than half-decoded.
+    auto writeHeader = [&file] (int v)
+    {
+        juce::FileOutputStream out (file);
+        if (out.openedOk() && out.setPosition (0) && out.truncate().wasOk())
+            out.write (&v, sizeof (v));
+    };
+    writeHeader (100);
+    check (! SfxrPresetFile::load (file, dummy), "v100 .sfs header is rejected");
+    check (dummy.base_freq == 0.77f, "rejected v100 load leaves the destination unchanged");
+    writeHeader (101);
+    check (! SfxrPresetFile::load (file, dummy), "v101 .sfs header is rejected");
+
     file.deleteFile();
 }
 
@@ -855,6 +1082,276 @@ static void testStolenVoiceDoesNotReleaseTheWrongNote()
 }
 
 //==============================================================================
+static void testRapidStealingWithFadeStaysClean()
+{
+    section ("rapid voice stealing with a fade-out stays bounded and finite");
+
+    const double sr = 44100.0;
+    const int    blockSize = 512;
+
+    SfxrEngine engine;
+    engine.prepare (sr, blockSize);
+
+    SfxrParams p = toneParams();
+    p.wave_type    = 0;      // square, loud: worst case for a hard cut
+    p.sound_vol    = 1.0f;
+    p.env_attack   = 0.0f;
+    p.env_sustain  = 0.2f;   // short enough that releases drain quickly
+    p.env_decay    = 0.5f;
+    p.env_punch    = 1.0f;
+    p.lpf_freq     = 1.0f;
+    engine.setParams (p);
+    engine.setOneShot (false);
+    engine.setMono (false);
+
+    juce::AudioBuffer<float> buffer (2, blockSize);
+
+    // Saturate the pool, then hammer it with repeated steals + releases so the
+    // fade state machine (steal -> fade -> pending restart / cancel) is exercised.
+    float peak = 0.0f;
+    for (int n = 0; n < SfxrEngine::kNumVoices; n++)
+        engine.noteOn (60 + n, 1.0f);
+
+    for (int i = 0; i < 200; i++)
+    {
+        const int note = 48 + (i % (SfxrEngine::kNumVoices + 4));
+        engine.noteOn (note, 1.0f);
+        buffer.clear();
+        engine.render (buffer, 0, blockSize);
+        peak = juce::jmax (peak, buffer.getMagnitude (0, 0, blockSize),
+                                 buffer.getMagnitude (1, 0, blockSize));
+
+        if ((i % 7) == 0)
+            engine.noteOff (60 + (i % SfxrEngine::kNumVoices));
+    }
+
+    std::printf ("  peak over %d steal/release rounds: %.4f\n", 200, peak);
+    check (std::isfinite (peak), "rapid stealing never produces non-finite output");
+    check (peak <= 1.0001f, "rapid stealing never exceeds full scale");
+
+    // Let everything go and confirm the engine empties out cleanly.
+    engine.allNotesOff();
+    for (int b = 0; b < 200; b++)
+    {
+        buffer.clear();
+        engine.render (buffer, 0, blockSize);
+    }
+    check (! engine.hasActiveVoices(), "engine empties out cleanly after the steal storm");
+}
+
+//==============================================================================
+static void testAllSoundOffCutsOneShots()
+{
+    section ("CC120 all sound off cuts a ringing one-shot");
+
+    const double sr = 44100.0;
+    const int    blockSize = 512;
+
+    SfxrEngine engine;
+    engine.prepare (sr, blockSize);
+
+    SfxrParams p = toneParams();
+    p.env_sustain = 1.0f;   // long sustain so the one-shot stays audibly alive
+    p.env_decay   = 0.5f;
+    engine.setParams (p);
+    engine.setOneShot (true);
+
+    juce::AudioBuffer<float> buffer (2, blockSize);
+
+    auto renderPeak = [&] (int blocks)
+    {
+        float peak = 0.0f;
+        for (int b = 0; b < blocks; b++)
+        {
+            buffer.clear();
+            engine.render (buffer, 0, blockSize);
+            peak = juce::jmax (peak, buffer.getMagnitude (0, 0, blockSize));
+        }
+        return peak;
+    };
+
+    engine.noteOn (69, 1.0f);
+    renderPeak (1);
+    check (engine.hasActiveVoices(), "the one-shot is playing before the panic");
+
+    // CC123 (all notes off) releases held notes; one-shots ignore that release,
+    // so this must not stop it.
+    engine.allNotesOff();
+    renderPeak (4);
+    check (engine.hasActiveVoices(), "CC123 does not stop a ringing one-shot");
+
+    // CC120 (all sound off) is the real panic and must silence everything,
+    // including one-shots that never listened to their note-off.
+    engine.allSoundOff();
+    const float after = renderPeak (4);
+    check (! engine.hasActiveVoices(), "CC120 clears every voice");
+    check (after < 1.0e-6f, "CC120 leaves only silence behind");
+}
+
+//==============================================================================
+static void testRenderSplitsOversizedBlocks()
+{
+    section ("render splits blocks larger than the prepared size");
+
+    const double sr = 44100.0;
+    const int    prepared = 512;
+    const int    oversized = 5000;   // several times larger than prepared
+
+    auto makeEngine = [&] (SfxrEngine& engine)
+    {
+        engine.prepare (sr, prepared);
+        SfxrParams p = toneParams();
+        p.wave_type     = 0;         // square wave, rich harmonic content
+        p.env_sustain   = 1.0f;
+        engine.setParams (p);
+        engine.setOneShot (true);
+        engine.noteOn (60, 1.0f);
+    };
+
+    SfxrEngine whole, split;
+    makeEngine (whole);
+    makeEngine (split);
+
+    juce::AudioBuffer<float> wholeBuf (2, oversized);
+    wholeBuf.clear();
+    whole.render (wholeBuf, 0, oversized);   // one oversized request
+
+    juce::AudioBuffer<float> splitBuf (2, oversized);
+    splitBuf.clear();
+    for (int pos = 0; pos < oversized; pos += prepared)
+        split.render (splitBuf, pos, juce::jmin (prepared, oversized - pos));
+
+    bool identical = true;
+    float peak = 0.0f;
+    for (int ch = 0; ch < 2; ch++)
+        for (int s = 0; s < oversized; s++)
+        {
+            peak = juce::jmax (peak, std::abs (wholeBuf.getSample (ch, s)));
+            if (wholeBuf.getSample (ch, s) != splitBuf.getSample (ch, s))
+                identical = false;
+        }
+
+    std::printf ("  oversized render equals chunked render: %s (peak %.4f)\n",
+                 identical ? "yes" : "NO", peak);
+    check (std::isfinite (peak) && peak < 2.0f, "oversized render stays finite and bounded");
+    check (identical, "one oversized render equals the same notes rendered in prepared-size chunks");
+}
+
+//==============================================================================
+static void testMonoLastNotePriority()
+{
+    section ("mono mode keeps the newest still-held note ringing");
+
+    const double sr = 44100.0;
+    const int    blockSize = 512;
+
+    SfxrEngine engine;
+    engine.prepare (sr, blockSize);
+
+    SfxrParams p = toneParams();
+    p.env_sustain = 1.0f;   // 0.5 -> clamp at 1: 1.0^2*100000 = 2.27 s of sustain
+    p.env_decay   = 0.5f;   // 0.25*100000/44100 = 0.57 s of decay after release
+    engine.setParams (p);
+    engine.setOneShot (false);   // sustain: notes ring until note-off
+    engine.setMono (true);
+
+    juce::AudioBuffer<float> buffer (2, blockSize);
+
+    auto renderBlocks = [&] (int blocks, bool measure)
+    {
+        float peak = 0.0f;
+        for (int b = 0; b < blocks; b++)
+        {
+            buffer.clear();
+            engine.render (buffer, 0, blockSize);
+            if (measure)
+                peak = juce::jmax (peak, buffer.getMagnitude (0, 0, blockSize));
+        }
+        return peak;
+    };
+
+    // C is held, then D is played (D retriggers the single mono voice).
+    engine.noteOn (60, 1.0f);
+    renderBlocks (4, false);
+    engine.noteOn (64, 1.0f);
+    renderBlocks (4, false);
+
+    // Releasing the older C must NOT stop the ringing D. Render far longer than
+    // a released voice could possibly ring out (~3.3 s): with the old behaviour
+    // the single voice got released here and died, with the fix it keeps
+    // sustaining on the still-held D.
+    engine.noteOff (60);
+    renderBlocks (280, false);
+    check (engine.hasActiveVoices(), "releasing an older held note does not stop the ringing note");
+    const float whileHeld = renderBlocks (10, true);
+    std::printf ("  peak while D is held after C was released: %.4f\n", whileHeld);
+    check (whileHeld > 0.02f, "the still-held note keeps sounding after the older one was released");
+
+    // Once the sounding D is released and everything decays, it all goes silent.
+    engine.noteOff (64);
+    renderBlocks (160, false);
+    const float afterRelease = renderBlocks (10, true);
+    std::printf ("  peak after releasing the held note:        %.6f\n", afterRelease);
+    check (! engine.hasActiveVoices(), "releasing the last mono note silences the engine");
+    check (afterRelease < 1.0e-5f, "mono note-off leaves only silence behind");
+}
+
+//==============================================================================
+static void testPolyphonicBusStaysInBounds()
+{
+    section ("polyphonic mix never exceeds the full-scale range");
+
+    const double sr = 44100.0;
+    const int    blockSize = 512;
+
+    SfxrEngine engine;
+    engine.prepare (sr, blockSize);
+
+    // Loud, heavily clipped setup so every voice spends most of its time at the
+    // +/-1 rails: 8 such voices summed raw would clearly exceed full scale.
+    SfxrParams p = toneParams();
+    p.wave_type    = 0;         // square
+    p.base_freq    = 0.3f;
+    p.sound_vol    = 1.0f;
+    p.env_attack   = 0.0f;
+    p.env_sustain  = 1.0f;
+    p.env_decay    = 0.5f;
+    p.env_punch    = 1.0f;
+    p.freq_limit   = 0.0f;
+    p.lpf_freq     = 1.0f;      // filter bypassed: keep the rail-to-rail waveform
+    p.hpf_freq     = 0.0f;
+    engine.setParams (p);
+    engine.setOneShot (false);
+    engine.setMono (false);
+
+    juce::AudioBuffer<float> buffer (2, blockSize);
+
+    // A tight chord of eight distinct notes, all held.
+    for (int n = 0; n < SfxrEngine::kNumVoices; n++)
+        engine.noteOn (60 + n, 1.0f);
+
+    // Let the attack settle, then measure over a sustained window.
+    for (int b = 0; b < 4; b++)
+    {
+        buffer.clear();
+        engine.render (buffer, 0, blockSize);
+    }
+
+    float peak = 0.0f;
+    for (int b = 0; b < 60; b++)
+    {
+        buffer.clear();
+        engine.render (buffer, 0, blockSize);
+        peak = juce::jmax (peak, buffer.getMagnitude (0, 0, blockSize),
+                                 buffer.getMagnitude (1, 0, blockSize));
+    }
+
+    std::printf ("  peak of an 8-voice sustained chord: %.4f\n", peak);
+    check (peak <= 1.0001f, "the polyphonic bus never exceeds full scale");
+    check (peak > 0.01f, "the held chord is actually audible");
+}
+
+//==============================================================================
 static void testDomainClampingMatchesOriginalUi()
 {
     section ("domain clamping matches the original UI");
@@ -983,6 +1480,7 @@ int main()
     testVibratoRateIsSampleRateIndependent();
     testFrequencySlideIsSampleRateIndependent();
     testDutySweepIsSampleRateIndependent();
+    testEffectTimeScalingIsSampleRateIndependent();
     testNoNonFiniteOutput();
     testOutputLevelMatchesOriginal();
     testSustainModeHolds();
@@ -991,6 +1489,11 @@ int main()
     testPresetFileRoundTrip();
     testSampleAccurateNoteOnset();
     testStolenVoiceDoesNotReleaseTheWrongNote();
+    testRapidStealingWithFadeStaysClean();
+    testAllSoundOffCutsOneShots();
+    testRenderSplitsOversizedBlocks();
+    testMonoLastNotePriority();
+    testPolyphonicBusStaysInBounds();
     testDomainClampingMatchesOriginalUi();
 
     std::printf ("\n%d checks, %d failure(s)\n", checks, failures);

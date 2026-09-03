@@ -4,18 +4,41 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [1.2.0] - 2026-09-04
 
-### Added
+### Fixed
 
-- **Standalone 音频导出**：新增 EXPORT AUDIO 按钮（仅 Standalone 显示），将当前声音离线渲染为 WAV（16/24-bit PCM、32-bit float）或 OGG（可选比特率），支持 44.1/48/88.2/96/192 kHz 采样率。渲染以根音（MIDI note 69）满力度触发，输出单声道；One-Shot 声音渲染到自然结束，Sustain 声音固定导出 10 秒以避免无界文件。格式、采样率、位深/比特率与导出目录会记录到用户设置文件中，下次打开对话框自动带出上次的选择；目标文件已存在时会先弹窗确认是否替换
+- **wave_type 参数自动化可能在音频线程直接改 GUI**（原 P1）：`parameterChanged` 此前同步执行 `ToggleButton::setToggleState()`，宿主自动化该参数时存在 GUI 数据竞争并把控件工作带上实时线程；现 listener 只 `triggerAsyncUpdate()`，按钮刷新移到消息线程
+- **CC120 All Sound Off 停不住 one-shot**（原 P2）：此前 CC120 与 CC123 都走正常 release，而 one-shot 忽略 note-off，宿主 panic / 停止后声音仍继续；新增 `SfxrEngine::allSoundOff()` 立即静音全部 voice，CC120 与 CC123 分开处理（CC123 保留正常 release）。新增渲染测试覆盖两条路径
+- **超出 prepare 声明大小的 block 会在音频线程扩容**（原 P1）：`voiceBuffer.setSize()` 兜底可能实时分配/释放；现改为按预分配容量把超大请求分块渲染（`renderChunk`），音频线程不再触碰堆。新增「超大请求 == 分块渲染逐样本一致」回归测试
+- **tail 长度仍低报**（原 P2）：One-Shot 的 attack+sustain+decay 会被宿主 bounce/freeze 截断；`getTailLengthSeconds()` 现报告三阶段平方和的保守上界（最大约 6.80 s）
+- **`.sfs` 覆盖保存非事务性**（原 P2）：此前先把旧文件 truncate 再写入，磁盘满 / 中途失败会破坏原 preset；现写同目录临时文件、flush/close 成功后原子替换，任何失败路径保留原文件并清理临时文件
+- **异步 FileChooser 回调捕获裸 `this`**（原 P1）：Load/Save 对话框打开期间关闭插件窗口会 use-after-free；回调改捕获 `Component::SafePointer` 并在入口校验
+- **`.sfs` 只支持版本 102**：原版 sfxr 1.2.1 只写 102，加载端此前还接受更旧的 v100/v101 并按各自字段布局解码；现仅接受 102，旧档直接拒绝（返回失败且不修改目标参数），避免按错误布局错位读取历史存档
+- **MONO 模式松开旧音符会误停正在响的新音**（legato 弹 C→D 后松开 C 直接掐掉 D）：MONO 现维护「仍按住音符」栈，按 last-note 优先级发声——松开更早按住的音符不再停掉当前声音，松开当前发声音时回落重触发仍按住的最新音符；CC All Notes Off / All Sound Off / 复位与模式切换同步清栈。新增回归测试
+- **voice 抢占无淡出，超过 8 音时被抢 voice 波形硬切产生咔嗒**：抢占时先把被抢 voice 的尾音做约 3 ms 线性淡出，再切换到待播放的新音（`SfxrVoice::requestStealRestart`）；淡出期间若该音已被松开或触发全停，则安静收尾而不再重启。新增「200 轮抢占/释放风暴」回归测试
+- **多 voice 混音总线可超过 0 dBFS**：每个 voice 已各自 clamp 到 ±1，但并发时直接相加会越界。现明确 headroom 契约——单个 voice 直通（输出与原版一致、不变），多个 voice 时按该时刻实际并发数 `1/N` 缩放总线，保证混音峰值不超满幅。新增「8 voice 满载和弦峰值 ≤ ±1」回归测试
+- **乘法递推系数改用精确换算**：`fslide`/`fltw_d`/`flthp_d` 原先按一阶近似 `1 + delta/srScale` 缩放到采样率，极端 slide / filter sweep 在 22.05–192 kHz 下会相对 44.1 kHz 漂移约 0.2–3%；现改为把 44.1 kHz 基准系数取 `pow(基准值, 1/srScale)`，任意物理时长下的累乘结果与采样率无关，44.1 kHz 输出逐位不变
 
 ### Changed
 
+- **编辑器模块重构（纯结构整理，观感与布局逐像素不变）**：`PluginEditor` 从 813 行瘦身为视图编排层，原先内嵌的示波器、屏幕键盘、主题 LookAndFeel、导出选项弹窗、弹窗辅助与业务动作分别拆入 `Source/Gui/`（`SfxrTheme` / `SfxrLookAndFeel` / `SfxrDialogs` / `WaveformScope` / `SfxrMidiKeyboard` / `ExportOptionsComponent` / `EditorActions`）；坐标、外观与交互保持不变，依赖方向固定为编辑器 → 动作层 → 引擎/参数
+- **每 block 读参改为直接解引用缓存的原子指针**：构造函数一次性缓存全部 27 个参数的 `std::atomic<float>*`，`readParams()` 不再做 27 次字符串键查找；`ParamID` 常量由 `juce::String` 改为 `inline constexpr const char*`，消除每 TU 一份 String 及其静态初始化
+- **批量预设写入对音频线程发布一致快照**：`applyParams()` 逐参写入期间音频线程可能拼出「半新半旧」的混合参数组。现先置「写入中」标志、完成后把整份参数提交到三重缓冲并以原子 generation 发布；音频线程只在 generation 变化时取整份快照，批次进行中沿用上一 block 的快照，单参数自动化仍逐参实时生效。批量 change gesture 也从逐参 begin/end 改为整批一次 begin、写入后统一 end
+- `THIRD_PARTY_NOTICES.md` 不再声称上游源码保存在 `reference/`：`.gitignore` 忽略该目录、不随源码归档，声明改为「上游需从作者站点获取、本地副本仅用于对照审计」
 - **LOAD SOUND / SAVE SOUND 重命名为 LOAD CONFIG / SAVE CONFIG**：更准确地反映 `.sfs` 保存的是参数配置而非音频本身
 - Standalone 窗口改用原生标题栏，并固定初始内容尺寸为 880×700
 - **弹窗风格统一**：Load/Save/Export 失败提示与「文件已存在」确认弹窗此前使用 JUCE 默认的深色 LookAndFeel，与其余界面的 sfxr 米色主题不一致；现改为手动构建 `AlertWindow` 并显式套用同一份 LookAndFeel。`SfxrLookAndFeel` 此前未指定 `AlertWindow::backgroundColourId` / `textColourId`，套用后弹窗背景仍是 `LookAndFeel_V4` 的深色底，现补齐这两个颜色 ID
 - **GENERATOR 列按钮重新分组排序**：MUTATE / RANDOMIZE / PLAY SOUND 为一组，LOAD CONFIG / SAVE CONFIG / EXPORT AUDIO 为另一组，两组之间加入分隔线与间距
+- **补齐效果特性的跨采样率测试**（原测试缺口）：新增综合属性测试，以 44.1 kHz 为基准在 5 种采样率下断言——arpeggio 单步频率比（解析期望值）、repeat 驱动下相邻探测窗的音高轨迹一致、LP/HP filter sweep 与 phaser 的零交叉率（频谱亮度代理）一致、vibrato 延迟淡入之后的调频幅度远大于淡入前
+- **构建与 CI 加固**：插件/测试目标启用 JUCE recommended config/warning/lto flags 并关闭 web/cURL；新增 `SfxrPluginTest` 处理器级集成测试（真实 `AudioProcessor` 的 note 发声、CC120 立即静音、超大 block、确定性 program 与 state 往返，CTest 接入）；打包统一为各平台单归档（macOS zip、Linux tar.gz 保可执行权限、Windows zip），并把 `LICENSE` / `THIRD_PARTY_NOTICES.md` / `SOURCE.txt` 随归档发布、Release 阶段自动校验；CI 清理中间文件改跨平台 Python；macOS CI 用 `auvaltool` 实际加载校验 AU bundle
+- **JUCE 依赖固定到 commit**：`FetchContent` 从 tag `8.0.15` 改为其不可变的完整 commit `91ad83a`，CI 的 JUCE 缓存 key 同步更新，避免依赖在 tag 被移动时静默变化
+- **构建环境全部固定**：GitHub Actions（checkout/cache/upload-artifact/download-artifact/action-gh-release）改用不可变 commit SHA；runner 固定 macOS 14 / Windows Server 2022 / Ubuntu 22.04；macOS 部署目标固定 11.0（CMake 内建默认 + CI 参数），Linux 最低 glibc 2.35 已声明
+- **收尾加固**：`currentProgram` 改 `std::atomic<int>`（消除宿主并发查询/切换/恢复 state 的数据竞争）；`build.sh` 拆为「只构建」+ 新 `scripts/install.sh`（macOS 安装，失败即非零、成功才报 Installed）；CI Release 校验 git tag 与 `project(VERSION)` 一致；Windows/Linux 加 `pluginval` v1.0.4 真实 VST3 宿主扫描（Linux 走 xvfb）；新增 `SfxrGuiTest`（开合编辑器 15 次 + LeakedObjectDetector）让「77 组件泄漏」与「参数不被量化」两条都有常驻回归
+
+### Added
+
+- **Standalone 音频导出**：新增 EXPORT AUDIO 按钮（仅 Standalone 显示），将当前声音离线渲染为 WAV（16/24-bit PCM、32-bit float）或 OGG（可选比特率），支持 44.1/48/88.2/96/192 kHz 采样率。渲染以根音（MIDI note 69）满力度触发，输出单声道；One-Shot 声音渲染到自然结束，Sustain 声音固定导出 10 秒以避免无界文件。格式、采样率、位深/比特率与导出目录会记录到用户设置文件中，下次打开对话框自动带出上次的选择；目标文件已存在时会先弹窗确认是否替换
 
 ## [1.1.0] - 2026-08-28
 

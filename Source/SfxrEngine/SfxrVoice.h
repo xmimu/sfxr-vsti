@@ -32,6 +32,13 @@ public:
     void start (const SfxrParams& params, double sampleRate,
                 int midiNote, float velocity, bool oneShot);
 
+    // Starts a short fade-out of the currently sounding note and remembers the
+    // new note to start once it has faded. Used by the engine when a voice is
+    // stolen for a newer note: switching the synthesis state instantly would cut
+    // the old waveform mid-cycle and click.
+    void requestStealRestart (const SfxrParams& params, double sampleRate,
+                              int midiNote, float velocity, bool oneShot);
+
     void noteOff();
 
     // Silences the voice immediately (used when the host re-prepares us).
@@ -50,6 +57,16 @@ public:
 
 private:
     void reset (bool restart);
+
+    // Fired from the render loop when the steal fade has completed (or the old
+    // note ended on its own first): swap to the pending note.
+    void beginPendingRestart();
+    void clearStealFade() noexcept
+    {
+        stealFading  = false;
+        stealPending = false;
+        stealCancel  = false;
+    }
 
     // ---- per-voice synth state (mirrors the globals in original main.cpp) ----
     bool   playing     = false;
@@ -123,6 +140,18 @@ private:
     double sampleRate  = 44100.0;
     int    midiNote    = 69;
     uint32_t age       = 0;
+
+    // ---- voice-stealing fade (see requestStealRestart) ----
+    SfxrParams stealParams;
+    double stealSampleRate = 44100.0;
+    int    stealNote   = 69;
+    float  stealVel    = 1.0f;
+    bool   stealOneShot = true;
+    bool   stealFading  = false;
+    bool   stealPending = false;
+    bool   stealCancel  = false;
+    int    stealFadeLen = 0;
+    int    stealFadePos = 0;
 
     juce::Random rng { 0x5f3759df };
 

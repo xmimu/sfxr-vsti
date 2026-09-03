@@ -9,8 +9,9 @@ namespace SfxrPresetFile
             return false;
 
         // The original UI calls ResetParams() before loading. Decode into a
-        // fresh object so fields absent from v100/v101 use those defaults, and
-        // so a short read never partially mutates the caller's object.
+        // fresh object so a short read never partially mutates the caller's
+        // object. Only version 102 is supported: that is the only version the
+        // original sfxr 1.2.1 writes, and older 100/101 archives are rejected.
         SfxrParams loaded;
 
         bool allOk = true;
@@ -21,7 +22,7 @@ namespace SfxrPresetFile
         int version = 0;
         if (!readInt (version))
             return false;
-        if (version != 100 && version != 101 && version != 102)
+        if (version != 102)
             return false;
 
         int wave = 0;
@@ -31,15 +32,12 @@ namespace SfxrPresetFile
             return false;
         loaded.wave_type = wave;
 
-        loaded.sound_vol = 0.5f;
-        if (version == 102)
-            readFloat (loaded.sound_vol);
+        readFloat (loaded.sound_vol);
 
         readFloat (loaded.base_freq);
         readFloat (loaded.freq_limit);
         readFloat (loaded.freq_ramp);
-        if (version >= 101)
-            readFloat (loaded.freq_dramp);
+        readFloat (loaded.freq_dramp);
         readFloat (loaded.duty);
         readFloat (loaded.duty_ramp);
 
@@ -66,11 +64,8 @@ namespace SfxrPresetFile
 
         readFloat (loaded.repeat_speed);
 
-        if (version >= 101)
-        {
-            readFloat (loaded.arp_speed);
-            readFloat (loaded.arp_mod);
-        }
+        readFloat (loaded.arp_speed);
+        readFloat (loaded.arp_mod);
 
         if (! allOk)
             return false;
@@ -98,61 +93,82 @@ namespace SfxrPresetFile
 
     bool save (const juce::File& file, const SfxrParams& p)
     {
-        juce::FileOutputStream out (file);
-        if (!out.openedOk())
+        // Write to a sibling temp file first, then atomically replace the target
+        // once the write has fully succeeded. Truncating the target up front
+        // would destroy the original preset if the write failed part-way.
+        const auto temp = file.withFileExtension (file.getFileExtension() + ".tmp");
+
+        {
+            juce::FileOutputStream out (temp);
+            if (!out.openedOk())
+                return false;
+
+            // FileOutputStream positions itself at the end of an existing file,
+            // so without this an overwrite would append a second record and
+            // load() would keep reading the old sound back.
+            if (! out.setPosition (0) || ! out.truncate().wasOk())
+            {
+                temp.deleteFile();
+                return false;
+            }
+
+            bool ok = true;
+            auto writeInt   = [&] (int v)   { ok = ok && out.write (&v, sizeof (v)); };
+            auto writeFloat = [&] (float v) { ok = ok && out.write (&v, sizeof (v)); };
+            auto writeBool  = [&] (bool v)  { ok = ok && out.write (&v, sizeof (v)); };
+
+            writeInt (102);
+            writeInt (p.wave_type);
+            writeFloat (p.sound_vol);
+
+            writeFloat (p.base_freq);
+            writeFloat (p.freq_limit);
+            writeFloat (p.freq_ramp);
+            writeFloat (p.freq_dramp);
+            writeFloat (p.duty);
+            writeFloat (p.duty_ramp);
+
+            writeFloat (p.vib_strength);
+            writeFloat (p.vib_speed);
+            writeFloat (p.vib_delay);
+
+            writeFloat (p.env_attack);
+            writeFloat (p.env_sustain);
+            writeFloat (p.env_decay);
+            writeFloat (p.env_punch);
+
+            writeBool (false); // filter_on (unused in the synth)
+
+            writeFloat (p.lpf_resonance);
+            writeFloat (p.lpf_freq);
+            writeFloat (p.lpf_ramp);
+            writeFloat (p.hpf_freq);
+            writeFloat (p.hpf_ramp);
+
+            writeFloat (p.pha_offset);
+            writeFloat (p.pha_ramp);
+
+            writeFloat (p.repeat_speed);
+
+            writeFloat (p.arp_speed);
+            writeFloat (p.arp_mod);
+
+            // Flush explicitly so a full disk or a read-only volume is reported
+            // here rather than being swallowed by the destructor.
+            out.flush();
+            if (! ok || ! out.getStatus().wasOk())
+            {
+                temp.deleteFile();
+                return false;
+            }
+        } // out is closed before the swap below
+
+        if (! temp.replaceFileIn (file))
+        {
+            temp.deleteFile();
             return false;
+        }
 
-        // FileOutputStream positions itself at the end of an existing file, so
-        // without this an overwrite would append a second record and load()
-        // would keep reading the old sound back.
-        if (! out.setPosition (0) || ! out.truncate().wasOk())
-            return false;
-
-        bool ok = true;
-        auto writeInt   = [&] (int v)   { ok = ok && out.write (&v, sizeof (v)); };
-        auto writeFloat = [&] (float v) { ok = ok && out.write (&v, sizeof (v)); };
-        auto writeBool  = [&] (bool v)  { ok = ok && out.write (&v, sizeof (v)); };
-
-        writeInt (102);
-        writeInt (p.wave_type);
-        writeFloat (p.sound_vol);
-
-        writeFloat (p.base_freq);
-        writeFloat (p.freq_limit);
-        writeFloat (p.freq_ramp);
-        writeFloat (p.freq_dramp);
-        writeFloat (p.duty);
-        writeFloat (p.duty_ramp);
-
-        writeFloat (p.vib_strength);
-        writeFloat (p.vib_speed);
-        writeFloat (p.vib_delay);
-
-        writeFloat (p.env_attack);
-        writeFloat (p.env_sustain);
-        writeFloat (p.env_decay);
-        writeFloat (p.env_punch);
-
-        writeBool (false); // filter_on (unused in the synth)
-
-        writeFloat (p.lpf_resonance);
-        writeFloat (p.lpf_freq);
-        writeFloat (p.lpf_ramp);
-        writeFloat (p.hpf_freq);
-        writeFloat (p.hpf_ramp);
-
-        writeFloat (p.pha_offset);
-        writeFloat (p.pha_ramp);
-
-        writeFloat (p.repeat_speed);
-
-        writeFloat (p.arp_speed);
-        writeFloat (p.arp_mod);
-
-        // Flush explicitly so a full disk or a read-only volume is reported here
-        // rather than being swallowed by the destructor.
-        out.flush();
-
-        return ok && out.getStatus().wasOk();
+        return true;
     }
 }

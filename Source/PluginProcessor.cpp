@@ -1,6 +1,53 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace
+{
+    // One entry per continuous float parameter of SfxrParams, pairing its tree ID
+    // with the struct member it fills. Used both to cache the raw atomics once in
+    // the constructor and to fold them into an SfxrParams afterwards.
+    struct ParamSlot
+    {
+        const char*            id;
+        float SfxrParams::*    field;
+    };
+
+    constexpr ParamSlot kParamSlots[] =
+    {
+        { ParamID::base_freq,    &SfxrParams::base_freq    },
+        { ParamID::freq_limit,   &SfxrParams::freq_limit   },
+        { ParamID::freq_ramp,    &SfxrParams::freq_ramp    },
+        { ParamID::freq_dramp,   &SfxrParams::freq_dramp   },
+        { ParamID::duty,         &SfxrParams::duty         },
+        { ParamID::duty_ramp,    &SfxrParams::duty_ramp    },
+
+        { ParamID::vib_strength, &SfxrParams::vib_strength },
+        { ParamID::vib_speed,    &SfxrParams::vib_speed    },
+        { ParamID::vib_delay,    &SfxrParams::vib_delay    },
+
+        { ParamID::env_attack,   &SfxrParams::env_attack   },
+        { ParamID::env_sustain,  &SfxrParams::env_sustain  },
+        { ParamID::env_decay,    &SfxrParams::env_decay    },
+        { ParamID::env_punch,    &SfxrParams::env_punch    },
+
+        { ParamID::lpf_resonance,&SfxrParams::lpf_resonance},
+        { ParamID::lpf_freq,     &SfxrParams::lpf_freq     },
+        { ParamID::lpf_ramp,     &SfxrParams::lpf_ramp     },
+        { ParamID::hpf_freq,     &SfxrParams::hpf_freq     },
+        { ParamID::hpf_ramp,     &SfxrParams::hpf_ramp     },
+
+        { ParamID::pha_offset,   &SfxrParams::pha_offset   },
+        { ParamID::pha_ramp,     &SfxrParams::pha_ramp     },
+
+        { ParamID::repeat_speed, &SfxrParams::repeat_speed },
+
+        { ParamID::arp_speed,    &SfxrParams::arp_speed    },
+        { ParamID::arp_mod,      &SfxrParams::arp_mod      },
+
+        { ParamID::master_vol,   &SfxrParams::sound_vol    },
+    };
+}
+
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new SfxrVstiAudioProcessor();
@@ -10,6 +57,25 @@ SfxrVstiAudioProcessor::SfxrVstiAudioProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createLayout())
 {
+    // Cache the raw value pointers once. The audio thread then reads the params
+    // by dereferencing these atomics instead of doing a string-keyed lookup (and
+    // implicitly allocating a juce::String) on every block.
+    static_assert (std::size (kParamSlots) == kNumFloatParams,
+                   "kParamSlots must list every cached float parameter");
+
+    for (size_t i = 0; i < std::size (kParamSlots); ++i)
+        rawParams[i] = apvts.getRawParameterValue (kParamSlots[i].id);
+
+    rawWaveType = apvts.getRawParameterValue (ParamID::wave_type);
+    rawMono     = apvts.getRawParameterValue (ParamID::mono);
+    rawOneShot  = apvts.getRawParameterValue (ParamID::one_shot);
+
+    for (auto* p : rawParams)
+    {
+        jassert (p != nullptr);
+        juce::ignoreUnused (p);
+    }
+    jassert (rawWaveType != nullptr && rawMono != nullptr && rawOneShot != nullptr);
 }
 
 SfxrVstiAudioProcessor::~SfxrVstiAudioProcessor()
@@ -106,105 +172,145 @@ bool SfxrVstiAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
 
 double SfxrVstiAudioProcessor::getTailLengthSeconds() const
 {
-    // After a note-off the decay stage is the longest thing that can still be
-    // sounding: env_decay^2 * 100000 samples, calibrated at 44.1 kHz. Reporting
-    // 0 here makes hosts cut the tail short when bouncing or freezing.
-    const float decay = apvts.getRawParameterValue (ParamID::env_decay)->load();
-    return (double) decay * (double) decay * 100000.0 / 44100.0;
+    // Conservative upper bound on how long any voice can still sound after the
+    // last note event: attack + sustain + decay, each lasting at most
+    // env_x^2 * 100000 samples at 44.1 kHz. Decay alone under-reports one-shots
+    // (whose attack and sustain stages still have to finish), which made hosts
+    // truncate the sound when bouncing or freezing.
+    const float attack  = apvts.getRawParameterValue (ParamID::env_attack)->load();
+    const float sustain = apvts.getRawParameterValue (ParamID::env_sustain)->load();
+    const float decay   = apvts.getRawParameterValue (ParamID::env_decay)->load();
+    return (double) (attack * attack + sustain * sustain + decay * decay) * 100000.0 / 44100.0;
 }
 
 SfxrParams SfxrVstiAudioProcessor::readParams() const
 {
     SfxrParams p;
 
-    p.wave_type = juce::roundToInt (apvts.getRawParameterValue (ParamID::wave_type)->load());
+    for (size_t i = 0; i < std::size (kParamSlots); ++i)
+        p.*(kParamSlots[i].field) = rawParams[i]->load();
 
-    p.base_freq  = apvts.getRawParameterValue (ParamID::base_freq)->load();
-    p.freq_limit = apvts.getRawParameterValue (ParamID::freq_limit)->load();
-    p.freq_ramp  = apvts.getRawParameterValue (ParamID::freq_ramp)->load();
-    p.freq_dramp = apvts.getRawParameterValue (ParamID::freq_dramp)->load();
-    p.duty       = apvts.getRawParameterValue (ParamID::duty)->load();
-    p.duty_ramp  = apvts.getRawParameterValue (ParamID::duty_ramp)->load();
-
-    p.vib_strength = apvts.getRawParameterValue (ParamID::vib_strength)->load();
-    p.vib_speed    = apvts.getRawParameterValue (ParamID::vib_speed)->load();
-    p.vib_delay    = apvts.getRawParameterValue (ParamID::vib_delay)->load();
-
-    p.env_attack  = apvts.getRawParameterValue (ParamID::env_attack)->load();
-    p.env_sustain = apvts.getRawParameterValue (ParamID::env_sustain)->load();
-    p.env_decay   = apvts.getRawParameterValue (ParamID::env_decay)->load();
-    p.env_punch   = apvts.getRawParameterValue (ParamID::env_punch)->load();
-
-    p.lpf_resonance = apvts.getRawParameterValue (ParamID::lpf_resonance)->load();
-    p.lpf_freq      = apvts.getRawParameterValue (ParamID::lpf_freq)->load();
-    p.lpf_ramp      = apvts.getRawParameterValue (ParamID::lpf_ramp)->load();
-    p.hpf_freq      = apvts.getRawParameterValue (ParamID::hpf_freq)->load();
-    p.hpf_ramp      = apvts.getRawParameterValue (ParamID::hpf_ramp)->load();
-
-    p.pha_offset = apvts.getRawParameterValue (ParamID::pha_offset)->load();
-    p.pha_ramp   = apvts.getRawParameterValue (ParamID::pha_ramp)->load();
-
-    p.repeat_speed = apvts.getRawParameterValue (ParamID::repeat_speed)->load();
-
-    p.arp_speed = apvts.getRawParameterValue (ParamID::arp_speed)->load();
-    p.arp_mod   = apvts.getRawParameterValue (ParamID::arp_mod)->load();
-
-    p.sound_vol = apvts.getRawParameterValue (ParamID::master_vol)->load();
+    p.wave_type = juce::roundToInt (rawWaveType->load());
 
     return p;
 }
 
-bool SfxrVstiAudioProcessor::readBoolParam (const juce::String& id) const
+SfxrParams SfxrVstiAudioProcessor::pullParamsForAudio()
 {
-    return apvts.getRawParameterValue (id)->load() >= 0.5f;
+    const int gen = committedGen.load (std::memory_order_acquire);
+
+    if (gen != lastSeenGen)
+    {
+        // A preset batch has been committed since the last block. The slot was
+        // fully written before the generation was published (see applyParams), so
+        // this is a consistent whole-preset snapshot, not a param-by-param read.
+        lastSeenGen = gen;
+        lastAudioParams = committed[(size_t) (gen % 3)];
+    }
+    else if (applying.load (std::memory_order_acquire))
+    {
+        // A batch is half-written right now: reading the tree would see a mix of
+        // old and new values. Reuse the previous block's consistent snapshot.
+    }
+    else
+    {
+        // Steady state: read the live tree (covers single-parameter automation).
+        lastAudioParams = readParams();
+    }
+
+    return lastAudioParams;
+}
+
+bool SfxrVstiAudioProcessor::readBoolParam (const char* id) const
+{
+    if (std::strcmp (id, ParamID::mono) == 0)
+        return rawMono->load() >= 0.5f;
+
+    if (std::strcmp (id, ParamID::one_shot) == 0)
+        return rawOneShot->load() >= 0.5f;
+
+    jassertfalse;
+    return false;
 }
 
 void SfxrVstiAudioProcessor::applyParams (const SfxrParams& p, bool withGesture)
 {
-    auto setParam = [this, withGesture] (const juce::String& id, float value)
+    // The tree parameters that a preset write covers, in write order.
+    const char* const ids[] =
     {
-        if (auto* param = apvts.getParameter (id))
-        {
-            // The gesture makes hosts treat the whole preset change as a single
-            // edit rather than a stream of unrelated automation writes.
-            if (withGesture) param->beginChangeGesture();
-            param->setValueNotifyingHost (param->convertTo0to1 (value));
-            if (withGesture) param->endChangeGesture();
-        }
+        ParamID::wave_type, ParamID::base_freq,  ParamID::freq_limit,
+        ParamID::freq_ramp, ParamID::freq_dramp, ParamID::duty,
+        ParamID::duty_ramp, ParamID::vib_strength, ParamID::vib_speed,
+        ParamID::vib_delay, ParamID::env_attack, ParamID::env_sustain,
+        ParamID::env_decay, ParamID::env_punch,  ParamID::lpf_resonance,
+        ParamID::lpf_freq,  ParamID::lpf_ramp,   ParamID::hpf_freq,
+        ParamID::hpf_ramp,  ParamID::pha_offset, ParamID::pha_ramp,
+        ParamID::repeat_speed, ParamID::arp_speed, ParamID::arp_mod,
+        ParamID::master_vol,
     };
 
-    setParam (ParamID::wave_type,  (float) p.wave_type);
-    setParam (ParamID::base_freq,  p.base_freq);
-    setParam (ParamID::freq_limit, p.freq_limit);
-    setParam (ParamID::freq_ramp,  p.freq_ramp);
-    setParam (ParamID::freq_dramp, p.freq_dramp);
-    setParam (ParamID::duty,       p.duty);
-    setParam (ParamID::duty_ramp,  p.duty_ramp);
+    // One gesture wrapping the whole batch rather than one per parameter, so a
+    // host sees a single preset edit instead of a stream of unrelated writes.
+    if (withGesture)
+        for (auto* id : ids)
+            if (auto* param = apvts.getParameter (id))
+                param->beginChangeGesture();
 
-    setParam (ParamID::vib_strength, p.vib_strength);
-    setParam (ParamID::vib_speed,    p.vib_speed);
-    setParam (ParamID::vib_delay,    p.vib_delay);
+    // Publishing order matters: set applying *before* touching the tree so the
+    // audio thread stops reading live values while the batch is half-written.
+    applying.store (true, std::memory_order_release);
 
-    setParam (ParamID::env_attack,  p.env_attack);
-    setParam (ParamID::env_sustain, p.env_sustain);
-    setParam (ParamID::env_decay,   p.env_decay);
-    setParam (ParamID::env_punch,   p.env_punch);
+    auto setValue = [this] (const juce::String& id, float value)
+    {
+        if (auto* param = apvts.getParameter (id))
+            param->setValueNotifyingHost (param->convertTo0to1 (value));
+    };
 
-    setParam (ParamID::lpf_resonance, p.lpf_resonance);
-    setParam (ParamID::lpf_freq,      p.lpf_freq);
-    setParam (ParamID::lpf_ramp,      p.lpf_ramp);
-    setParam (ParamID::hpf_freq,      p.hpf_freq);
-    setParam (ParamID::hpf_ramp,      p.hpf_ramp);
+    setValue (ParamID::wave_type,  (float) p.wave_type);
+    setValue (ParamID::base_freq,  p.base_freq);
+    setValue (ParamID::freq_limit, p.freq_limit);
+    setValue (ParamID::freq_ramp,  p.freq_ramp);
+    setValue (ParamID::freq_dramp, p.freq_dramp);
+    setValue (ParamID::duty,       p.duty);
+    setValue (ParamID::duty_ramp,  p.duty_ramp);
 
-    setParam (ParamID::pha_offset, p.pha_offset);
-    setParam (ParamID::pha_ramp,   p.pha_ramp);
+    setValue (ParamID::vib_strength, p.vib_strength);
+    setValue (ParamID::vib_speed,    p.vib_speed);
+    setValue (ParamID::vib_delay,    p.vib_delay);
 
-    setParam (ParamID::repeat_speed, p.repeat_speed);
+    setValue (ParamID::env_attack,  p.env_attack);
+    setValue (ParamID::env_sustain, p.env_sustain);
+    setValue (ParamID::env_decay,   p.env_decay);
+    setValue (ParamID::env_punch,   p.env_punch);
 
-    setParam (ParamID::arp_speed, p.arp_speed);
-    setParam (ParamID::arp_mod,   p.arp_mod);
+    setValue (ParamID::lpf_resonance, p.lpf_resonance);
+    setValue (ParamID::lpf_freq,      p.lpf_freq);
+    setValue (ParamID::lpf_ramp,      p.lpf_ramp);
+    setValue (ParamID::hpf_freq,      p.hpf_freq);
+    setValue (ParamID::hpf_ramp,      p.hpf_ramp);
 
-    setParam (ParamID::master_vol, p.sound_vol);
+    setValue (ParamID::pha_offset, p.pha_offset);
+    setValue (ParamID::pha_ramp,   p.pha_ramp);
+
+    setValue (ParamID::repeat_speed, p.repeat_speed);
+
+    setValue (ParamID::arp_speed, p.arp_speed);
+    setValue (ParamID::arp_mod,   p.arp_mod);
+
+    setValue (ParamID::master_vol, p.sound_vol);
+
+    // Commit the whole struct into the next triple-buffer slot, then publish the
+    // new generation. The acquire in pullParamsForAudio orders this publish after
+    // the copy, and the slot is not reused for three generations.
+    const int newGen = committedGen.load (std::memory_order_relaxed) + 1;
+    committed[(size_t) (newGen % 3)] = p;
+    committedGen.store (newGen, std::memory_order_release);
+    applying.store (false, std::memory_order_release);
+
+    if (withGesture)
+        for (auto* id : ids)
+            if (auto* param = apvts.getParameter (id))
+                param->endChangeGesture();
 }
 
 const juce::String SfxrVstiAudioProcessor::getProgramName (int index)
@@ -221,7 +327,7 @@ void SfxrVstiAudioProcessor::setCurrentProgram (int index)
     if (index < 0 || index >= getNumPrograms())
         return;
 
-    currentProgram = index;
+    currentProgram.store (index);
 
     SfxrParams p;
 
@@ -287,8 +393,10 @@ void SfxrVstiAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     const int numSamples = buffer.getNumSamples();
     buffer.clear();
 
-    // Read current parameters into the engine.
-    engine.setParams (readParams());
+    // Read current parameters into the engine. pullParamsForAudio() returns a
+    // whole-preset snapshot whenever a preset write is in flight, so notes can
+    // never be locked onto a half-updated mix of old and new values.
+    engine.setParams (pullParamsForAudio());
     engine.setMono (readBoolParam (ParamID::mono));
     engine.setOneShot (readBoolParam (ParamID::one_shot));
 
@@ -337,8 +445,16 @@ void SfxrVstiAudioProcessor::handleMidiEvent (const juce::MidiMessage& msg)
         if (SfxrNoteRange::contains (msg.getNoteNumber()))
             engine.noteOff (msg.getNoteNumber());
     }
-    else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+    else if (msg.isAllSoundOff())
     {
+        // CC120 All Sound Off: a panic. Must cut one-shots immediately, which
+        // a normal release (allNotesOff) cannot do.
+        engine.allSoundOff();
+    }
+    else if (msg.isAllNotesOff())
+    {
+        // CC123 All Notes Off: release held notes, let anything already
+        // released or one-shot ring out naturally.
         engine.allNotesOff();
     }
 }
@@ -356,7 +472,7 @@ bool SfxrVstiAudioProcessor::hasEditor() const
 void SfxrVstiAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
-    state.setProperty ("currentProgram", currentProgram, nullptr);
+    state.setProperty ("currentProgram", currentProgram.load(), nullptr);
 
     if (std::unique_ptr<juce::XmlElement> xml { state.createXml() })
         copyXmlToBinary (*xml, destData);
@@ -374,7 +490,7 @@ void SfxrVstiAudioProcessor::setStateInformation (const void* data, int sizeInBy
         // setCurrentProgram: the saved parameters are the truth, and the program
         // index is only remembered so the host's menu shows the right entry.
         apvts.replaceState (state);
-        currentProgram = juce::jlimit (0, getNumPrograms() - 1,
-                                       (int) state.getProperty ("currentProgram", 0));
+        currentProgram.store (juce::jlimit (0, getNumPrograms() - 1,
+                                            (int) state.getProperty ("currentProgram", 0)));
     }
 }

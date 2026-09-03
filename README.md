@@ -15,7 +15,7 @@
 - **全部 24 个 sfxr 参数** 均暴露给宿主（注意：参数在 note-on 时锁存，与原版 sfxr 一致，自动化不会改变已发声音符）
 - **经典 sfxr 外观**：米黄底 + 橙色滑条，7 个预设生成器 + RANDOMIZE / MUTATE
 - **虚拟 MIDI 键盘**：显示 A0–C8 共 88 键，但插件只响应 C2–C6（MIDI 36–84）；范围外按键灰化禁用，根音高亮
-- **.sfs 文件兼容**：可读取原版 sfxr 100/101/102 格式并写出 102 格式，参数为连续浮点、不做量化
+- **.sfs 文件兼容**：读写原版 sfxr 1.2.1 的 102 格式（只读 102，更旧的 100/101 存档会拒绝加载），参数为连续浮点、不做量化
 - **8 个出厂 program**：Init + 7 个生成器类别，暴露给宿主的预设菜单（确定性，选中同一个 program 始终得到同一个声音）
 
 ## 目录结构
@@ -25,7 +25,15 @@ sfxr-vsti/
 ├── CMakeLists.txt          # 构建配置（FetchContent 拉取 JUCE）
 ├── Source/
 │   ├── PluginProcessor.*   # 参数树、MIDI 调度、示波器缓冲
-│   ├── PluginEditor.*      # GUI（滑条、键盘、示波器、预设按钮）
+│   ├── PluginEditor.*      # GUI 编排层（固定布局 + 动作转发）
+│   ├── Gui/
+│   │   ├── SfxrTheme.h     # sfxr 调色板
+│   │   ├── SfxrLookAndFeel.* # 主题绘制（滑条/下拉框）
+│   │   ├── SfxrDialogs.*   # 统一样式的 Alert/Confirm 弹窗
+│   │   ├── WaveformScope.* # 实时示波器
+│   │   ├── SfxrMidiKeyboard.* # 屏幕键盘（灰键 + ROOT 高亮）
+│   │   ├── ExportOptionsComponent.* # 音频导出选项弹窗
+│   │   └── EditorActions.* # 动作层（随机/生成/.sfs 读写/导出）
 │   └── SfxrEngine/
 │       ├── SfxrParams.h    # 参数定义（ID + 结构体）
 │       ├── SfxrVoice.*     # 合成核心（ResetSample/SynthSample 移植）
@@ -80,12 +88,15 @@ xattr -dr com.apple.quarantine "/Applications/SfxrVsti.app"
 
 ## 从源码构建
 
-依赖：CMake 3.24+、C++17 编译器。JUCE 8.0.15 通过 CMake `FetchContent` 在配置阶段自动下载（需联网）。
+依赖：CMake 3.24+、C++17 编译器。JUCE 8.0.15（固定 commit `91ad83a`）通过 CMake `FetchContent` 在配置阶段自动下载（需联网）。
+
+发布基线（CI 固定，供兼容性参考）：macOS 在 macOS 14 runner 交叉编译通用二进制、部署目标 macOS 11.0；Linux 在 Ubuntu 22.04 构建（**最低 glibc 2.35**）；Windows 在 Windows Server 2022 构建。
 
 macOS / Linux：
 
 ```bash
-./scripts/build.sh
+./scripts/build.sh          # 只构建，产物在 build/SfxrVsti_artefacts/Release/
+./scripts/install.sh        # macOS：把 VST3/AU 安装到 ~/Library/Audio/Plug-Ins（仅拷贝成功才报 Installed）
 ```
 
 Windows：
@@ -177,7 +188,7 @@ ctest --test-dir build --output-on-failure
 - 验证原版 Slider 的单极/双极参数夹取规则，并检查 10850 组生成参数全部落在取值域内
 - 输出电平与原版 WAV 导出一致，且随 Output Level 线性变化
 - One-Shot 自行结束、Sustain 模式持续到 note-off
-- `.sfs` v102 的全部参数可往返，NaN、截断文件与未知版本号会被拒绝，失败加载不会修改目标参数；v100/v101 golden fixture 尚未加入测试
+- `.sfs` v102 的全部参数可往返；NaN、截断文件与未知/旧版本号（100/101 及非 102 魔数）会被拒绝，失败加载不会修改目标参数
 
 ## 捐赠
 

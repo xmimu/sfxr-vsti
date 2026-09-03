@@ -3,8 +3,9 @@
 #include <JuceHeader.h>
 #include "SfxrParams.h"
 
-// Loads/saves sfxr .sfs parameter files, byte-compatible with the original
-// (versions 100/101/102 written by sfxr 1.2.1).
+// Loads/saves sfxr .sfs parameter files, byte-compatible with the original.
+// Only version 102 is supported -- the only version sfxr 1.2.1 writes; older
+// 100/101 archives are rejected on load.
 namespace SfxrPresetFile
 {
     bool load (const juce::File& file, SfxrParams& p);

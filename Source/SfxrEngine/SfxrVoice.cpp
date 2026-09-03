@@ -34,6 +34,7 @@ SfxrVoice::SfxrVoice()
 void SfxrVoice::start (const SfxrParams& p, double sr, int note,
                        float vel, bool oneShotMode)
 {
+    clearStealFade();
     params      = p;
     sampleRate  = sr;
     midiNote    = note;
@@ -44,16 +45,56 @@ void SfxrVoice::start (const SfxrParams& p, double sr, int note,
     reset (false);
 }
 
+void SfxrVoice::requestStealRestart (const SfxrParams& p, double sr, int note,
+                                     float vel, bool oneShotMode)
+{
+    stealParams       = p;
+    stealSampleRate   = sr;
+    stealNote         = note;
+    stealVel          = vel;
+    stealOneShot      = oneShotMode;
+    stealFadeLen      = juce::jmax (1, (int) (0.003 * sr));   // ~3 ms fade
+    stealFadePos      = 0;
+    stealCancel       = false;
+    stealPending      = true;
+    stealFading       = playing;   // no need to fade a voice that is already silent
+}
+
+void SfxrVoice::beginPendingRestart()
+{
+    if (stealCancel)
+    {
+        // The note was released again while its fade was running; end quietly
+        // instead of restarting something nobody is holding any more.
+        clearStealFade();
+        playing  = false;
+        released = true;
+        return;
+    }
+
+    const SfxrParams p      = stealParams;
+    const double sr         = stealSampleRate;
+    const int    note       = stealNote;
+    const float  vel        = stealVel;
+    const bool   oneShotMode = stealOneShot;
+    clearStealFade();
+    start (p, sr, note, vel, oneShotMode);
+}
+
 void SfxrVoice::noteOff()
 {
     if (!oneShot)
         released = true;
+
+    if (stealFading || stealPending)
+        stealCancel = true;
 }
 
 void SfxrVoice::stop() noexcept
 {
     playing  = false;
     released = true;
+    clearStealFade();
 }
 
 // Every magic constant in the original sfxr is calibrated for 44100 Hz. To get
@@ -61,8 +102,14 @@ void SfxrVoice::stop() noexcept
 // according to what it actually represents:
 //
 //   * a length or period measured in samples          -> * srScale
-//   * a first-order per-sample rate (x += a, x *= 1+a) -> a / srScale
-//   * a second-order per-sample rate (a += b)          -> b / srScale^2
+//   * a first-order additive rate (x += a)            -> a / srScale
+//   * a second-order additive rate (a += b)           -> b / srScale^2
+//   * a multiplicative per-sample factor (x *= (1+a)) -> pow (1 + a, 1 / srScale)
+//
+// Raising the 44.1 kHz multiplier to the power 1/srScale makes the accumulated
+// product over any physical time identical at every rate. Dividing the delta by
+// srScale (x *= 1 + a/srScale) would only be a first-order approximation and
+// drifts on extreme slides/filter sweeps.
 //
 // Note that the oscillator, the two filters and the phaser all run at the
 // supersample rate (8 * sampleRate) while the envelopes, slides and vibrato run
@@ -81,8 +128,9 @@ void SfxrVoice::reset (bool restart)
     period     = (int) fperiod;
     fmaxperiod = 100.0 / (params.freq_limit * params.freq_limit + 0.001) * noteScale * srScale;
 
-    // fperiod *= fslide once per output sample -> first order.
-    fslide  = 1.0 - std::pow ((double) params.freq_ramp, 3.0) * 0.01 / srScale;
+    // fperiod *= fslide once per output sample -> multiplicative, so convert the
+    // 44.1 kHz factor by raising it to 1/srScale.
+    fslide = std::pow (1.0 - std::pow ((double) params.freq_ramp, 3.0) * 0.01, 1.0 / srScale);
     // fslide += fdslide once per output sample -> second order.
     fdslide = -std::pow ((double) params.freq_dramp, 3.0) * 0.000001 / (srScale * srScale);
 
@@ -114,14 +162,16 @@ void SfxrVoice::reset (bool restart)
         fltdp  = 0.0f;
         const double fltw44 = std::pow ((double) params.lpf_freq, 3.0) * 0.1;
         fltw   = (float) (fltw44 / srScale);
-        fltw_d = (float) (1.0 + params.lpf_ramp * 0.0001 / srScale);
+        // fltw *= fltw_d once per supersample -> multiplicative.
+        fltw_d = (float) std::pow (1.0 + params.lpf_ramp * 0.0001, 1.0 / srScale);
         fltdmp = (float) (5.0 / (1.0 + std::pow ((double) params.lpf_resonance, 2.0) * 20.0)
                               * (0.01 + fltw44) / srScale);
         if (fltdmp > 0.8f)
             fltdmp = 0.8f;
         fltphp  = 0.0f;
         flthp   = (float) (std::pow ((double) params.hpf_freq, 2.0) * 0.1 / srScale);
-        flthp_d = (float) (1.0 + params.hpf_ramp * 0.0003 / srScale);
+        // flthp *= flthp_d once per supersample -> multiplicative.
+        flthp_d = (float) std::pow (1.0 + params.hpf_ramp * 0.0003, 1.0 / srScale);
 
         // vibrato -- vib_phase advances once per output sample -> first order.
         vib_phase = 0.0f;
@@ -181,6 +231,12 @@ bool SfxrVoice::render (float* buffer, int numSamples)
     {
         if (!playing)
         {
+            // The preempted note ended on its own before the fade completed:
+            // jump straight to the pending note rather than waiting out the rest
+            // of the (pointless) fade.
+            if (stealPending)
+                beginPendingRestart();
+
             buffer[i] = 0.0f;
             continue;
         }
@@ -285,7 +341,7 @@ bool SfxrVoice::render (float* buffer, int numSamples)
             }
 
             // base waveform
-            const float fp = (float) phase / period;
+            const float fp = (float) phase / (float) period;
             switch (wave_type)
             {
                 case 0: sample = (fp < square_duty) ? 0.5f : -0.5f; break;   // square
@@ -332,7 +388,22 @@ bool SfxrVoice::render (float* buffer, int numSamples)
         if (ssample > 1.0f)  ssample = 1.0f;
         if (ssample < -1.0f) ssample = -1.0f;
 
-        buffer[i] = ssample;
+        if (stealFading)
+        {
+            // A voice stolen mid-cycle is faded out over a few milliseconds
+            // instead of being cut, then restarted with the pending note.
+            float outScale = 1.0f - (float) stealFadePos / (float) stealFadeLen;
+            if (outScale < 0.0f) outScale = 0.0f;
+            buffer[i] = ssample * outScale;
+
+            ++stealFadePos;
+            if (stealFadePos >= stealFadeLen)
+                beginPendingRestart();
+        }
+        else
+        {
+            buffer[i] = ssample;
+        }
     }
 
     return playing;

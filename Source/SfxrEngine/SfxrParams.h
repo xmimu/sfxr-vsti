@@ -3,43 +3,46 @@
 #include <JuceHeader.h>
 
 // Parameter ID constants (shared between processor, editor and engine).
+// Plain C strings rather than juce::String so a header include costs nothing:
+// every TU that pulls this in used to get its own copy of 27 String objects
+// plus their static initialisation. JUCE APIs accept const char* implicitly.
 namespace ParamID
 {
-    const juce::String wave_type     = "wave_type";
+    inline constexpr const char* wave_type     = "wave_type";
 
-    const juce::String base_freq     = "base_freq";
-    const juce::String freq_limit    = "freq_limit";
-    const juce::String freq_ramp     = "freq_ramp";
-    const juce::String freq_dramp    = "freq_dramp";
-    const juce::String duty          = "duty";
-    const juce::String duty_ramp     = "duty_ramp";
+    inline constexpr const char* base_freq     = "base_freq";
+    inline constexpr const char* freq_limit    = "freq_limit";
+    inline constexpr const char* freq_ramp     = "freq_ramp";
+    inline constexpr const char* freq_dramp    = "freq_dramp";
+    inline constexpr const char* duty          = "duty";
+    inline constexpr const char* duty_ramp     = "duty_ramp";
 
-    const juce::String vib_strength  = "vib_strength";
-    const juce::String vib_speed     = "vib_speed";
-    const juce::String vib_delay     = "vib_delay";
+    inline constexpr const char* vib_strength  = "vib_strength";
+    inline constexpr const char* vib_speed     = "vib_speed";
+    inline constexpr const char* vib_delay     = "vib_delay";
 
-    const juce::String env_attack    = "env_attack";
-    const juce::String env_sustain   = "env_sustain";
-    const juce::String env_decay     = "env_decay";
-    const juce::String env_punch     = "env_punch";
+    inline constexpr const char* env_attack    = "env_attack";
+    inline constexpr const char* env_sustain   = "env_sustain";
+    inline constexpr const char* env_decay     = "env_decay";
+    inline constexpr const char* env_punch     = "env_punch";
 
-    const juce::String lpf_resonance = "lpf_resonance";
-    const juce::String lpf_freq      = "lpf_freq";
-    const juce::String lpf_ramp      = "lpf_ramp";
-    const juce::String hpf_freq      = "hpf_freq";
-    const juce::String hpf_ramp      = "hpf_ramp";
+    inline constexpr const char* lpf_resonance = "lpf_resonance";
+    inline constexpr const char* lpf_freq      = "lpf_freq";
+    inline constexpr const char* lpf_ramp      = "lpf_ramp";
+    inline constexpr const char* hpf_freq      = "hpf_freq";
+    inline constexpr const char* hpf_ramp      = "hpf_ramp";
 
-    const juce::String pha_offset    = "pha_offset";
-    const juce::String pha_ramp      = "pha_ramp";
+    inline constexpr const char* pha_offset    = "pha_offset";
+    inline constexpr const char* pha_ramp      = "pha_ramp";
 
-    const juce::String repeat_speed  = "repeat_speed";
+    inline constexpr const char* repeat_speed  = "repeat_speed";
 
-    const juce::String arp_speed     = "arp_speed";
-    const juce::String arp_mod       = "arp_mod";
+    inline constexpr const char* arp_speed     = "arp_speed";
+    inline constexpr const char* arp_mod       = "arp_mod";
 
-    const juce::String master_vol    = "master_vol";
-    const juce::String mono          = "mono";
-    const juce::String one_shot      = "one_shot";
+    inline constexpr const char* master_vol    = "master_vol";
+    inline constexpr const char* mono          = "mono";
+    inline constexpr const char* one_shot      = "one_shot";
 }
 
 // The full sfxr parameter set in the same domain as the original code.

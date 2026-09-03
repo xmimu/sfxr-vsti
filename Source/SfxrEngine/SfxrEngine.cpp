@@ -32,6 +32,7 @@ void SfxrEngine::setMono (bool mono)
         return;
 
     monoMode = mono;
+    clearHeldNotes();
 
     for (auto& v : voices)
         v.noteOff();
@@ -41,6 +42,7 @@ void SfxrEngine::setMono (bool mono)
 
 void SfxrEngine::reset()
 {
+    clearHeldNotes();
     for (auto& v : voices)
         v.stop();
     noteToVoice.fill (-1);
@@ -86,12 +88,7 @@ void SfxrEngine::noteOn (int midiNote, float velocity)
 
     if (monoMode)
     {
-        // A single voice, always re-triggered by the newest note.
-        voices[0].start (params, sampleRate, midiNote, velocity, oneShotMode);
-        noteToVoice.fill (-1);
-        voiceToNote.fill (-1);
-        noteToVoice[(size_t) midiNote] = 0;
-        voiceToNote[0] = midiNote;
+        monoNoteOn (midiNote, velocity);
         return;
     }
 
@@ -111,7 +108,15 @@ void SfxrEngine::noteOn (int midiNote, float velocity)
     // eventual noteOff would release this new note instead.
     clearVoiceMapping (idx);
 
-    voices[(size_t) idx].start (params, sampleRate, midiNote, velocity, oneShotMode);
+    // If the stolen voice is still sounding, fade its tail out over a few
+    // milliseconds before switching to the new note, so the takeover does not
+    // cut the old waveform mid-cycle and click.
+    auto& voice = voices[(size_t) idx];
+    if (voice.isActive())
+        voice.requestStealRestart (params, sampleRate, midiNote, velocity, oneShotMode);
+    else
+        voice.start (params, sampleRate, midiNote, velocity, oneShotMode);
+
     noteToVoice[(size_t) midiNote] = idx;
     voiceToNote[(size_t) idx] = midiNote;
 }
@@ -123,9 +128,7 @@ void SfxrEngine::noteOff (int midiNote)
 
     if (monoMode)
     {
-        voices[0].noteOff();
-        noteToVoice.fill (-1);
-        voiceToNote.fill (-1);
+        monoNoteOff (midiNote);
         return;
     }
 
@@ -137,10 +140,93 @@ void SfxrEngine::noteOff (int midiNote)
     }
 }
 
+void SfxrEngine::monoNoteOn (int midiNote, float velocity)
+{
+    // Dedupe so a re-press of an already held note becomes the most recent.
+    for (int i = 0; i < heldCount; ++i)
+        if (heldStack[(size_t) i] == midiNote)
+        {
+            for (int j = i; j < heldCount - 1; ++j)
+            {
+                heldStack[(size_t) j] = heldStack[(size_t) (j + 1)];
+                heldVel[(size_t) j]   = heldVel[(size_t) (j + 1)];
+            }
+            --heldCount;
+            break;
+        }
+
+    heldStack[(size_t) heldCount] = midiNote;
+    heldVel[(size_t) heldCount]   = velocity;
+    ++heldCount;
+
+    // A single voice, always retriggered by the newest note.
+    voices[0].start (params, sampleRate, midiNote, velocity, oneShotMode);
+    noteToVoice.fill (-1);
+    voiceToNote.fill (-1);
+    noteToVoice[(size_t) midiNote] = 0;
+    voiceToNote[0] = midiNote;
+}
+
+void SfxrEngine::monoNoteOff (int midiNote)
+{
+    // Notes that were never started are ignored (paired filtering upstream).
+    int found = -1;
+    for (int i = 0; i < heldCount; ++i)
+        if (heldStack[(size_t) i] == midiNote)
+        {
+            found = i;
+            break;
+        }
+    if (found < 0)
+        return;
+
+    for (int j = found; j < heldCount - 1; ++j)
+    {
+        heldStack[(size_t) j] = heldStack[(size_t) (j + 1)];
+        heldVel[(size_t) j]   = heldVel[(size_t) (j + 1)];
+    }
+    --heldCount;
+
+    // Nothing held any more: release the voice normally.
+    if (heldCount == 0)
+    {
+        voices[0].noteOff();
+        noteToVoice.fill (-1);
+        voiceToNote.fill (-1);
+        return;
+    }
+
+    // Releasing an older note while a newer one still rings must not stop the
+    // voice (this is the legato case that used to kill the ringing note).
+    if (voiceToNote[0] != midiNote)
+        return;
+
+    // The sounding note was released but others are still held: fall back to
+    // the newest one by retriggering it, because the voice pitch is fixed when
+    // it is started.
+    const int   fallback = heldStack[(size_t) (heldCount - 1)];
+    const float vel      = heldVel[(size_t) (heldCount - 1)];
+    voices[0].start (params, sampleRate, fallback, vel, oneShotMode);
+    noteToVoice.fill (-1);
+    voiceToNote.fill (-1);
+    noteToVoice[(size_t) fallback] = 0;
+    voiceToNote[0] = fallback;
+}
+
 void SfxrEngine::allNotesOff()
 {
+    clearHeldNotes();
     for (auto& v : voices)
         v.noteOff();
+    noteToVoice.fill (-1);
+    voiceToNote.fill (-1);
+}
+
+void SfxrEngine::allSoundOff()
+{
+    clearHeldNotes();
+    for (auto& v : voices)
+        v.stop();
     noteToVoice.fill (-1);
     voiceToNote.fill (-1);
 }
@@ -159,13 +245,35 @@ void SfxrEngine::render (juce::AudioBuffer<float>& audio, int startSample, int n
     if (numSamples <= 0)
         return;
 
-    // Should only ever happen if the host ignores its own maximumBlockSize;
-    // growing here is still better than reading past the end of the buffer.
-    if (voiceBuffer.getNumSamples() < numSamples)
-        voiceBuffer.setSize (1, numSamples, false, true, true);
+    // voiceBuffer is sized once in prepare(). If a host ever hands us a block
+    // larger than it advertised, cut the request into pieces that fit instead
+    // of growing the buffer -- allocating on the audio thread is not allowed.
+    const int chunk = voiceBuffer.getNumSamples();
+    int offset = 0;
 
+    while (offset < numSamples)
+    {
+        const int n = juce::jmin (chunk, numSamples - offset);
+        renderChunk (audio, startSample + offset, n);
+        offset += n;
+    }
+}
+
+void SfxrEngine::renderChunk (juce::AudioBuffer<float>& audio, int startSample, int numSamples)
+{
     const int numChannels = audio.getNumChannels();
     float* const mono = voiceBuffer.getWritePointer (0);
+
+    // Polyphony headroom contract: every voice is individually clamped to +/-1,
+    // so N simultaneous voices could sum to N. Keep a single voice untouched
+    // (identical output to the original) and reserve headroom for chords by
+    // scaling the bus down by the number of voices that are actually sounding.
+    int activeVoices = 0;
+    for (int i = 0; i < kNumVoices; i++)
+        if (voices[(size_t) i].isActive())
+            activeVoices++;
+
+    const float busScale = activeVoices > 1 ? 1.0f / (float) activeVoices : 1.0f;
 
     for (int i = 0; i < kNumVoices; i++)
     {
@@ -184,4 +292,8 @@ void SfxrEngine::render (juce::AudioBuffer<float>& audio, int startSample, int n
         if (! stillActive)
             clearVoiceMapping (i);
     }
+
+    if (busScale != 1.0f)
+        for (int ch = 0; ch < numChannels; ch++)
+            audio.applyGain (ch, startSample, numSamples, busScale);
 }

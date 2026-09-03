@@ -15,7 +15,7 @@ A JUCE instrument plugin built on the [sfxr](http://www.drpetter.se/project_sfxr
 - **All 24 sfxr parameters** are exposed to the host (note: parameters are latched at note-on, as in the original sfxr, so automation does not alter a note that is already sounding)
 - **Classic sfxr look**: beige/orange sliders, 7 preset generators + RANDOMIZE / MUTATE
 - **On-screen MIDI keyboard**: displays all 88 keys from A0 to C8, but the plugin responds only to C2-C6 (MIDI 36-84); other keys are disabled and the root is highlighted
-- **.sfs file compatibility**: reads original sfxr versions 100/101/102 and writes version 102, with parameters kept as continuous floats rather than quantised
+- **.sfs file compatibility**: reads and writes the original sfxr 1.2.1 version-102 format (version 102 only; older 100/101 archives are rejected on load), with parameters kept as continuous floats rather than quantised
 - **8 factory programs**: Init plus one per generator category, exposed in the host's preset menu (deterministic -- the same program always gives the same sound)
 
 ## Directory structure
@@ -25,7 +25,15 @@ sfxr-vsti/
 ├── CMakeLists.txt          # build config (FetchContent pulls in JUCE)
 ├── Source/
 │   ├── PluginProcessor.*   # parameter tree, MIDI dispatch, scope buffer
-│   ├── PluginEditor.*      # GUI (sliders, keyboard, scope, preset buttons)
+│   ├── PluginEditor.*      # GUI orchestration (fixed layout + action forwarding)
+│   ├── Gui/
+│   │   ├── SfxrTheme.h     # sfxr palette
+│   │   ├── SfxrLookAndFeel.* # themed drawing (sliders / combo boxes)
+│   │   ├── SfxrDialogs.*   # consistently styled alert / confirm windows
+│   │   ├── WaveformScope.* # live oscilloscope
+│   │   ├── SfxrMidiKeyboard.* # on-screen keyboard (greyed keys + ROOT highlight)
+│   │   ├── ExportOptionsComponent.* # audio export options dialog
+│   │   └── EditorActions.* # action layer (random / generate / .sfs I/O / export)
 │   └── SfxrEngine/
 │       ├── SfxrParams.h    # parameter definitions (IDs + struct)
 │       ├── SfxrVoice.*     # synthesis core (ResetSample/SynthSample port)
@@ -80,12 +88,15 @@ Copy the `.vst3` to `~/.vst3/`.
 
 ## Building from source
 
-Requirements: CMake 3.24+, a C++17 compiler. JUCE 8.0.15 is downloaded automatically by CMake's `FetchContent` at configure time (network required).
+Requirements: CMake 3.24+, a C++17 compiler. JUCE 8.0.15 (pinned to commit `91ad83a`) is downloaded automatically by CMake's `FetchContent` at configure time (network required).
+
+Release baseline (fixed by CI, for compatibility reference): macOS is cross-compiled as a universal binary on a macOS 14 runner with a macOS 11.0 deployment target; Linux is built on Ubuntu 22.04 (**minimum glibc 2.35**); Windows is built on Windows Server 2022.
 
 macOS / Linux:
 
 ```bash
-./scripts/build.sh
+./scripts/build.sh          # build only; artefacts land in build/SfxrVsti_artefacts/Release/
+./scripts/install.sh        # macOS: install VST3/AU into ~/Library/Audio/Plug-Ins (only reports success on a successful copy)
 ```
 
 Windows:
@@ -177,7 +188,7 @@ It covers:
 - The original Slider clamping rules for unipolar and bipolar parameters, plus domain checks for 10850 generated parameter sets
 - Output level matches the original WAV export and scales linearly with Output Level
 - One-shot notes end by themselves; sustained notes hold until note-off
-- All v102 `.sfs` parameters round-trip; NaN values, truncated files and unknown versions are rejected, and failed loads leave the destination unchanged. v100/v101 golden fixtures are not yet covered
+- All v102 `.sfs` parameters round-trip; NaN values, truncated files and unknown or older version numbers (100/101 and any non-102 header) are rejected, and failed loads leave the destination unchanged
 
 ## License
 

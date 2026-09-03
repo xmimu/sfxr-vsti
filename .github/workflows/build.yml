@@ -15,32 +15,32 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-14
             platform: macOS
-            # Ship a universal binary; macos-latest runners are Apple Silicon,
-            # so without this Intel Mac users get an unusable plugin. The inner
+            # Ship a universal binary and fix the deployment target. The inner
             # quotes have to survive into the shell or the ';' would split the
             # command.
-            cmake_args: '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"'
-          - os: windows-latest
+            cmake_args: '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
+          - os: windows-2022
             platform: Windows
             cmake_args: ""
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: Linux
             cmake_args: ""
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      # actions are pinned to immutable commits (tag shown for humans).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       # JUCE is pulled in with FetchContent, so cache the clone rather than
       # re-downloading the whole framework on every run.
       - name: Cache JUCE
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: build/_deps
-          key: juce-8.0.15-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: juce-8.0.15-${{ runner.os }}-
+          key: juce-91ad83a-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: juce-91ad83a-${{ runner.os }}-
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -50,7 +50,6 @@ jobs:
             libasound2-dev \
             libjack-jackd2-dev \
             ladspa-sdk \
-            libcurl4-openssl-dev \
             libfreetype-dev \
             libfontconfig1-dev \
             libx11-dev \
@@ -69,14 +68,34 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Run engine tests
+      - name: Run engine and processor tests
         run: ctest --test-dir build --build-config Release --output-on-failure
 
+      # C2: remove intermediate libs portably. `find ... -delete` is not
+      # available in PowerShell, so drive it from Python which ships on every
+      # runner image.
       - name: Remove intermediate build files
         shell: bash
         run: |
-          find build/SfxrVsti_artefacts/Release -type f \
-            \( -name "*.a" -o -name "*.lib" -o -name "*.exp" \) -delete
+          python - <<'PY'
+          from pathlib import Path
+          root = Path('build/SfxrVsti_artefacts/Release')
+          removed = 0
+          for p in root.rglob('*'):
+              if p.is_file() and p.suffix in ('.a', '.lib', '.exp'):
+                  p.unlink(); removed += 1
+          print(f'removed {removed} intermediate file(s)')
+          PY
+
+      # E3: stage licence / notices / source-location info into the artefacts so
+      # every archive carries them.
+      - name: Stage distribution files
+        shell: bash
+        run: |
+          cp LICENSE THIRD_PARTY_NOTICES.md build/SfxrVsti_artefacts/Release/
+          printf 'SfxrVsti %s\nSource archive: %s\n\nAGPLv3 plugin -- the full source is available from the repository above.\n' \
+            "$GITHUB_REF_NAME" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            > build/SfxrVsti_artefacts/Release/SOURCE.txt
 
       # upload-artifact does not preserve macOS bundle structure reliably, so
       # pack the plugins ourselves first.
@@ -95,56 +114,117 @@ jobs:
           mkdir -p dist
           ditto -c -k --keepParent build/SfxrVsti_artefacts/Release dist/SfxrVsti-macOS.zip
 
-      - name: Upload artifacts (macOS)
+      # E4: the macOS Audio Unit is actually loaded and validated by Apple's
+      # auvaltool against the freshly signed bundle.
+      - name: Validate AU (macOS)
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: SfxrVsti-macOS
-          path: dist/SfxrVsti-macOS.zip
-          if-no-files-found: error
+        run: |
+          mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
+          cp -R build/SfxrVsti_artefacts/Release/AU/*.component "$HOME/Library/Audio/Plug-Ins/Components/"
+          pluginkit -a "$HOME/Library/Audio/Plug-Ins/Components/SfxrVsti.component"
+          auvaltool -v aumu Vsti Sfxr || { echo "auval validation failed"; exit 1; }
+
+      # E1: Linux executables lose their permission bits when uploaded as loose
+      # directories, so ship a tar.gz which preserves them. Windows uses zip.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          tar -czf dist/SfxrVsti-Linux.tar.gz -C build/SfxrVsti_artefacts/Release .
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path 'build/SfxrVsti_artefacts/Release/*' -DestinationPath 'dist/SfxrVsti-Windows.zip' -Force
+
+      # E4 (Windows/Linux): load the real VST3 in pluginval's headless scanner.
+      # Version pinned to v1.0.4.
+      - name: Validate VST3 with pluginval (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tmp = Join-Path $env:RUNNER_TEMP 'pluginval'
+          New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip' -OutFile "$tmp/pv.zip"
+          Expand-Archive -Path "$tmp/pv.zip" -DestinationPath $tmp -Force
+          $exe = Get-ChildItem -Path $tmp -Filter 'pluginval.exe' -Recurse | Select-Object -First 1
+          if (-not $exe) { Write-Error 'pluginval.exe not found in archive'; exit 1 }
+          & $exe.FullName --strictness-level 5 --validate-in-process "build/SfxrVsti_artefacts/Release/VST3/SfxrVsti.vst3"
+          exit $LASTEXITCODE
+
+      - name: Validate VST3 with pluginval (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y xvfb >/dev/null
+          curl -sL -o /tmp/pv.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Linux.zip
+          mkdir -p /tmp/pv && unzip -o -q /tmp/pv.zip -d /tmp/pv
+          exe=$(find /tmp/pv -type f -name pluginval | head -1)
+          chmod +x "$exe"
+          xvfb-run -a "$exe" --strictness-level 5 --validate-in-process \
+            "$GITHUB_WORKSPACE/build/SfxrVsti_artefacts/Release/VST3/SfxrVsti.vst3"
 
       - name: Upload artifacts
-        if: runner.os != 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: SfxrVsti-${{ matrix.platform }}
-          path: build/SfxrVsti_artefacts/Release
+          path: dist
           if-no-files-found: error
 
   release:
     name: Create GitHub Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Check tag matches project version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver=$(grep -E '^project\(' CMakeLists.txt | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ "$tag" != "$ver" ]; then
+            echo "release tag '$tag' does not match project VERSION '$ver'" >&2
+            exit 1
+          fi
+          echo "tag '$tag' matches project VERSION"
+
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           path: dist
 
-      - name: Install zip
-        run: sudo apt-get update && sudo apt-get install -y zip
-
-      - name: Zip each platform
+      - name: Verify and lift archives
         run: |
           cd dist
           for d in */; do
-            name="${d%/}"
-            # macOS is uploaded pre-zipped (to preserve the bundle layout), so
-            # just lift it out instead of nesting a second archive.
-            if [ -f "$d/$name.zip" ]; then
-              mv "$d/$name.zip" "$name.zip"
-              rmdir "$d" 2>/dev/null || true
-            else
-              zip -r "$name.zip" "$d"
-            fi
+            f=$(ls "$d")
+            name="${f%.tar.gz}"; name="${name%.zip}"
+            echo "== verifying $name =="
+            case "$f" in
+              *.tar.gz)
+                tar -tzf "$d/$f" >/dev/null
+                tar -tzf "$d/$f" | grep -qx 'LICENSE'  && echo "  has LICENSE"
+                tar -tzf "$d/$f" | grep -qx 'THIRD_PARTY_NOTICES.md' && echo "  has THIRD_PARTY_NOTICES.md"
+                tar -tzf "$d/$f" | grep -qx 'SOURCE.txt' && echo "  has SOURCE.txt"
+                mkdir -p "/tmp/pkg-$name" && tar -xzf "$d/$f" -C "/tmp/pkg-$name"
+                test -x "/tmp/pkg-$name/Standalone/SfxrVsti" && echo "  Standalone is executable"
+                ;;
+              *.zip)
+                unzip -l "$d/$f" | grep -q 'LICENSE' && echo "  has LICENSE"
+                unzip -l "$d/$f" | grep -q 'THIRD_PARTY_NOTICES.md' && echo "  has THIRD_PARTY_NOTICES.md"
+                ;;
+            esac
+            mv "$d/$f" "$name.tar.gz" 2>/dev/null || mv "$d/$f" "$name.zip"
+            rmdir "$d" 2>/dev/null || true
           done
           ls -la
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
-          files: dist/*.zip
+          files: dist/*.zip, dist/*.tar.gz
           generate_release_notes: true
