@@ -115,7 +115,7 @@ Windows CI uses MSVC; Linux requires the ALSA/JACK/X11 development libraries lis
 
 ### Interface
 
-- **GENERATOR column** (left): 7 preset categories (PICKUP/COIN, LASER/SHOOT, EXPLOSION, POWERUP, HIT/HURT, JUMP, BLIP/SELECT) + PLAY SOUND / RANDOMIZE / MUTATE / LOAD SOUND / SAVE SOUND
+- **GENERATOR column** (left): 7 preset categories (PICKUP/COIN, LASER/SHOOT, EXPLOSION, POWERUP, HIT/HURT, JUMP, BLIP/SELECT) + MUTATE / RANDOMIZE / PLAY SOUND / LOAD CONFIG / SAVE CONFIG; Standalone additionally provides EXPORT AUDIO (WAV/OGG export with sample-rate and encoding-quality selection)
 - **MANUAL SETTINGS** (right): continuous parameters grouped under ENVELOPE / FREQUENCY / VIBRATO / SQUARE DUTY / REPEAT / ARPEGGIO / PHASER / FILTERS / VOLUME
 - **Waveform oscilloscope** (bottom): live output waveform
 - **Virtual keyboard** (bottom): displays all 88 keys from A0 to C8, but only C2-C6 (MIDI 36-84) respond to click/drag; other keys are disabled; note 69 is highlighted in orange and labelled ROOT

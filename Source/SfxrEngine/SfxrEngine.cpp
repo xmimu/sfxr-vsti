@@ -145,6 +145,15 @@ void SfxrEngine::allNotesOff()
     voiceToNote.fill (-1);
 }
 
+bool SfxrEngine::hasActiveVoices() const noexcept
+{
+    for (const auto& voice : voices)
+        if (voice.isActive())
+            return true;
+
+    return false;
+}
+
 void SfxrEngine::render (juce::AudioBuffer<float>& audio, int startSample, int numSamples)
 {
     if (numSamples <= 0)

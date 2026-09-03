@@ -17,6 +17,7 @@
 #include "../Source/SfxrEngine/SfxrParams.h"
 #include "../Source/SfxrEngine/SfxrVoice.h"
 #include "../Source/SfxrEngine/SfxrEngine.h"
+#include "../Source/SfxrEngine/SfxrAudioExporter.h"
 #include "../Source/SfxrEngine/SfxrPresets.h"
 #include "../Source/SfxrEngine/SfxrPresetFile.h"
 
@@ -535,6 +536,75 @@ static void testSustainModeHolds()
     check (held.activeUntil / 44100.0 < 1.3, "sustained note ends after release");
 }
 
+static void testAudioExport()
+{
+    section ("offline audio export");
+
+    SfxrParams p = toneParams();
+    p.env_attack = 0.0f;
+    p.env_sustain = 0.1f;
+    p.env_decay = 0.1f;
+
+    for (const int sampleRate : { 44100, 48000, 88200, 96000, 192000 })
+    {
+        const auto audio = SfxrAudioExporter::renderPreview (p, false, true, sampleRate);
+        check (audio.getNumChannels() == 1, "offline export is mono");
+        check (audio.getNumSamples() > 0 && audio.getNumSamples() < sampleRate * 2,
+               "one-shot export ends naturally at " + juce::String (sampleRate) + " Hz");
+
+        for (int i = 0; i < audio.getNumSamples(); ++i)
+            check (std::isfinite (audio.getSample (0, i)), "offline export sample is finite");
+    }
+
+    const auto sustained = SfxrAudioExporter::renderPreview (p, false, false, 44100);
+    check (sustained.getNumSamples() == 441000, "sustained export is bounded to 10 seconds");
+
+    const auto audio = SfxrAudioExporter::renderPreview (p, false, true, 48000);
+    const auto directory = juce::File::getSpecialLocation (juce::File::tempDirectory);
+    const auto baseName = "SfxrVstiExportTest-" + juce::String (juce::Random::getSystemRandom().nextInt());
+
+    for (const int bitDepth : { 16, 24, 32 })
+    {
+        const auto file = directory.getChildFile (baseName + "-" + juce::String (bitDepth) + ".wav");
+        SfxrAudioExporter::Options options;
+        options.sampleRate = 48000;
+        options.wavBitDepth = bitDepth;
+        juce::String error;
+        check (SfxrAudioExporter::writeFile (file, audio, options, error), "WAV export succeeds");
+
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+        check (reader != nullptr, "WAV export can be read");
+        if (reader != nullptr)
+        {
+            check (reader->sampleRate == 48000.0, "WAV sample rate is retained");
+            check (reader->numChannels == 1, "WAV remains mono");
+            check ((int) reader->bitsPerSample == bitDepth, "WAV bit depth is retained");
+        }
+        file.deleteFile();
+    }
+
+    const auto ogg = directory.getChildFile (baseName + ".ogg");
+    SfxrAudioExporter::Options options;
+    options.format = SfxrAudioExporter::Format::ogg;
+    options.sampleRate = 48000;
+    options.oggQualityIndex = 4;
+    juce::String error;
+    check (SfxrAudioExporter::writeFile (ogg, audio, options, error), "OGG export succeeds");
+
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (ogg));
+    check (reader != nullptr, "OGG export can be read");
+    if (reader != nullptr)
+    {
+        check (reader->sampleRate == 48000.0, "OGG sample rate is retained");
+        check (reader->numChannels == 1, "OGG remains mono");
+    }
+    ogg.deleteFile();
+}
+
 static void testOriginalPresetSemantics()
 {
     section ("preset operations match original semantics");
@@ -916,6 +986,7 @@ int main()
     testNoNonFiniteOutput();
     testOutputLevelMatchesOriginal();
     testSustainModeHolds();
+    testAudioExport();
     testOriginalPresetSemantics();
     testPresetFileRoundTrip();
     testSampleAccurateNoteOnset();

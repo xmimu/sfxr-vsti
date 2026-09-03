@@ -46,6 +46,7 @@ target_sources(SfxrVsti
         Source/SfxrEngine/SfxrEngine.cpp
         Source/SfxrEngine/SfxrPresets.cpp
         Source/SfxrEngine/SfxrPresetFile.cpp
+        Source/SfxrEngine/SfxrAudioExporter.cpp
 )
 
 juce_generate_juce_header(SfxrVsti)
@@ -56,6 +57,7 @@ target_compile_features(SfxrVsti PRIVATE cxx_std_17)
 target_link_libraries(SfxrVsti PRIVATE
     juce::juce_audio_utils
     juce::juce_audio_devices
+    juce::juce_audio_formats
 )
 
 # We never shipped a VST2 version, so the VST3 does not need to be a drop-in
@@ -74,8 +76,9 @@ target_sources(SfxrRenderTest
         Source/SfxrEngine/SfxrEngine.cpp
         Source/SfxrEngine/SfxrPresets.cpp
         Source/SfxrEngine/SfxrPresetFile.cpp
+        Source/SfxrEngine/SfxrAudioExporter.cpp
 )
 target_compile_features(SfxrRenderTest PRIVATE cxx_std_17)
-target_link_libraries(SfxrRenderTest PRIVATE juce::juce_audio_basics)
+target_link_libraries(SfxrRenderTest PRIVATE juce::juce_audio_basics juce::juce_audio_formats)
 
 add_test(NAME EngineTests COMMAND SfxrRenderTest)

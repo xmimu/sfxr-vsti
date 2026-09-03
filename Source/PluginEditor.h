@@ -12,6 +12,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override {}
+    void parentHierarchyChanged() override;
 
 private:
     void parameterChanged (const juce::String& parameterID, float newValue) override;
@@ -37,6 +38,8 @@ private:
     void generateCategory (PresetCategory c);
     void loadSfs();
     void saveSfs();
+    void exportAudio();
+    void exportAudio (int formatId, int sampleRateId, int encodingId, const juce::File& target);
 
     SfxrVstiAudioProcessor& audioProcessor;
     juce::AudioProcessorValueTreeState& apvts;
@@ -57,6 +60,7 @@ private:
     std::unique_ptr<juce::MidiKeyboardComponent> midiKeyboard;
 
     juce::ToggleButton* waveButtons[4] = { nullptr, nullptr, nullptr, nullptr };
+    bool configuredStandaloneTitleBar = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SfxrVstiAudioProcessorEditor)
 };

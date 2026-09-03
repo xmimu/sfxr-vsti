@@ -25,6 +25,7 @@ public:
     void noteOn (int midiNote, float velocity);
     void noteOff (int midiNote);
     void allNotesOff();
+    bool hasActiveVoices() const noexcept;
 
     // Silences every voice immediately and drops all note mappings.
     void reset();

@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Standalone 音频导出**：新增 EXPORT AUDIO 按钮（仅 Standalone 显示），将当前声音离线渲染为 WAV（16/24-bit PCM、32-bit float）或 OGG（可选比特率），支持 44.1/48/88.2/96/192 kHz 采样率。渲染以根音（MIDI note 69）满力度触发，输出单声道；One-Shot 声音渲染到自然结束，Sustain 声音固定导出 10 秒以避免无界文件。格式、采样率、位深/比特率与导出目录会记录到用户设置文件中，下次打开对话框自动带出上次的选择；目标文件已存在时会先弹窗确认是否替换
+
+### Changed
+
+- **LOAD SOUND / SAVE SOUND 重命名为 LOAD CONFIG / SAVE CONFIG**：更准确地反映 `.sfs` 保存的是参数配置而非音频本身
+- Standalone 窗口改用原生标题栏，并固定初始内容尺寸为 880×700
+- **弹窗风格统一**：Load/Save/Export 失败提示与「文件已存在」确认弹窗此前使用 JUCE 默认的深色 LookAndFeel，与其余界面的 sfxr 米色主题不一致；现改为手动构建 `AlertWindow` 并显式套用同一份 LookAndFeel。`SfxrLookAndFeel` 此前未指定 `AlertWindow::backgroundColourId` / `textColourId`，套用后弹窗背景仍是 `LookAndFeel_V4` 的深色底，现补齐这两个颜色 ID
+- **GENERATOR 列按钮重新分组排序**：MUTATE / RANDOMIZE / PLAY SOUND 为一组，LOAD CONFIG / SAVE CONFIG / EXPORT AUDIO 为另一组，两组之间加入分隔线与间距
+
 ## [1.1.0] - 2026-08-28
 
 ### Fixed

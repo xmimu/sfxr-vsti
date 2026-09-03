@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "SfxrEngine/SfxrAudioExporter.h"
 
 namespace
 {
@@ -92,6 +93,22 @@ namespace
             setColour (juce::ToggleButton::tickColourId, kBarFill);
             setColour (juce::ToggleButton::tickDisabledColourId, kButtonBg);
             setColour (juce::Label::textColourId, kTextDark);
+            setColour (juce::ComboBox::backgroundColourId, kButtonBg);
+            setColour (juce::ComboBox::textColourId, kTextDark);
+            setColour (juce::ComboBox::outlineColourId, kDivider);
+            setColour (juce::ComboBox::arrowColourId, kTextDark);
+            setColour (juce::ComboBox::focusedOutlineColourId, kTextDark);
+            setColour (juce::TextEditor::backgroundColourId, kButtonBg);
+            setColour (juce::TextEditor::textColourId, kTextDark);
+            setColour (juce::TextEditor::outlineColourId, kDivider);
+            setColour (juce::TextEditor::focusedOutlineColourId, kTextDark);
+            setColour (juce::PopupMenu::backgroundColourId, kBg);
+            setColour (juce::PopupMenu::textColourId, kTextDark);
+            setColour (juce::PopupMenu::highlightedBackgroundColourId, kBarFill);
+            setColour (juce::PopupMenu::highlightedTextColourId, kTextDark);
+            setColour (juce::AlertWindow::backgroundColourId, kBg);
+            setColour (juce::AlertWindow::textColourId, kTextDark);
+            setColour (juce::AlertWindow::outlineColourId, kDivider);
         }
 
         void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
@@ -120,6 +137,224 @@ namespace
                 g.fillRect (centre - 0.5f, (float) (y + height - 3), 1.0f, 3.0f);
             }
         }
+
+        void drawComboBox (juce::Graphics& g, int width, int height, bool isButtonDown,
+                           int, int, int buttonW, int, juce::ComboBox&) override
+        {
+            g.fillAll (isButtonDown ? kButtonHover : kButtonBg);
+            g.setColour (kDivider);
+            g.drawRect (0, 0, width, height, 1);
+            g.drawLine ((float) (width - buttonW), 1.0f, (float) (width - buttonW),
+                        (float) (height - 1), 1.0f);
+
+            const float centreX = width - buttonW * 0.5f;
+            const float centreY = height * 0.5f;
+            juce::Path arrow;
+            arrow.addTriangle (centreX - 4.0f, centreY - 2.0f, centreX + 4.0f, centreY - 2.0f,
+                               centreX, centreY + 3.0f);
+            g.fillPath (arrow);
+        }
+    };
+
+    // AlertWindow's static show*() helpers always use the global default LookAndFeel,
+    // which would look out of place next to the rest of this sfxr-styled UI. Building
+    // the window directly lets us apply the same LookAndFeel as everything else.
+    void showStyledAlert (juce::LookAndFeel& lf, juce::MessageBoxIconType icon,
+                          const juce::String& title, const juce::String& message,
+                          juce::Component* associatedComponent)
+    {
+        auto* alert = new juce::AlertWindow (title, message, icon, associatedComponent);
+        alert->setLookAndFeel (&lf);
+        alert->addButton ("OK", 0, juce::KeyPress (juce::KeyPress::returnKey));
+        alert->enterModalState (true, juce::ModalCallbackFunction::create ([alert] (int)
+        {
+            std::unique_ptr<juce::AlertWindow> deleter (alert);
+        }), false);
+    }
+
+    void showStyledConfirm (juce::LookAndFeel& lf, juce::MessageBoxIconType icon,
+                            const juce::String& title, const juce::String& message,
+                            juce::Component* associatedComponent, std::function<void()> onConfirm)
+    {
+        auto* alert = new juce::AlertWindow (title, message, icon, associatedComponent);
+        alert->setLookAndFeel (&lf);
+        alert->addButton ("Replace", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        alert->enterModalState (true, juce::ModalCallbackFunction::create ([alert, onConfirm] (int result)
+        {
+            std::unique_ptr<juce::AlertWindow> deleter (alert);
+            if (result == 1)
+                onConfirm();
+        }), false);
+    }
+
+    // Remembers the last export choices (format/rate/encoding/folder) between dialog opens.
+    juce::PropertiesFile::Options getExportSettingsOptions()
+    {
+        juce::PropertiesFile::Options options;
+        options.applicationName = "SfxrVsti";
+        options.filenameSuffix = "settings";
+        options.folderName = "SfxrVsti";
+        options.osxLibrarySubFolder = "Application Support";
+        return options;
+    }
+
+    class ExportOptionsComponent : public juce::Component
+    {
+    public:
+        using ExportCallback = std::function<void (int, int, int, const juce::File&)>;
+
+        explicit ExportOptionsComponent (ExportCallback callback)
+            : onExport (std::move (callback))
+        {
+            juce::PropertiesFile settings (getExportSettingsOptions());
+            outputDirectory = juce::File (settings.getValue ("exportDirectory"));
+            if (! outputDirectory.isDirectory())
+                outputDirectory = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+
+            format.addItem ("WAV", 1);
+            format.addItem ("OGG", 2);
+            format.setSelectedId (settings.getIntValue ("exportFormat", 1));
+            format.onChange = [this] { updateEncodingChoices(); };
+
+            for (const auto& rate : { "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "192 kHz" })
+                sampleRate.addItem (rate, sampleRate.getNumItems() + 1);
+            sampleRate.setSelectedId (settings.getIntValue ("exportSampleRate", 1));
+
+            fileName.setText ("sfxr-sound", false);
+            fileName.setSelectAllWhenFocused (true);
+
+            chooseFolder.setButtonText ("CHOOSE FOLDER");
+            chooseFolder.onClick = [this] { chooseOutputDirectory(); };
+            cancel.setButtonText ("CANCEL");
+            cancel.onClick = [this] { closeDialog(); };
+            exportButton.setButtonText ("EXPORT");
+            exportButton.onClick = [this] { exportFile(); };
+
+            for (auto* component : std::initializer_list<juce::Component*> {
+                     &format, &sampleRate, &encoding, &fileName, &chooseFolder, &cancel, &exportButton })
+                addAndMakeVisible (component);
+
+            updateEncodingChoices();
+            encoding.setSelectedId (settings.getIntValue ("exportEncoding", encoding.getSelectedId()));
+            setSize (380, 300);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (kBg);
+            g.setColour (kTextDark);
+            g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+            g.drawText ("FORMAT", 16, 12, 160, 16, juce::Justification::centredLeft);
+            g.drawText ("SAMPLE RATE", 16, 58, 160, 16, juce::Justification::centredLeft);
+            g.drawText ("BIT DEPTH / BITRATE", 16, 104, 180, 16, juce::Justification::centredLeft);
+            g.drawText ("EXPORT FOLDER", 16, 150, 180, 16, juce::Justification::centredLeft);
+            g.drawText ("FILE NAME", 16, 200, 160, 16, juce::Justification::centredLeft);
+            g.setFont (11.0f);
+            g.drawText (outputDirectory.getFullPathName(), 16, 168, 226, 20, juce::Justification::centredLeft, true);
+        }
+
+        void resized() override
+        {
+            constexpr int left = 16;
+            constexpr int width = 348;
+            format.setBounds (left, 28, width, 22);
+            sampleRate.setBounds (left, 74, width, 22);
+            encoding.setBounds (left, 120, width, 22);
+            chooseFolder.setBounds (248, 166, 116, 24);
+            fileName.setBounds (left, 216, width, 24);
+            cancel.setBounds (100, 258, 80, 24);
+            exportButton.setBounds (200, 258, 80, 24);
+        }
+
+    private:
+        void updateEncodingChoices()
+        {
+            encoding.clear();
+            if (format.getSelectedId() == 1)
+            {
+                encoding.addItem ("16-bit PCM", 16);
+                encoding.addItem ("24-bit PCM", 24);
+                encoding.addItem ("32-bit float", 32);
+                encoding.setSelectedId (24);
+            }
+            else
+            {
+                const auto qualities = juce::OggVorbisAudioFormat().getQualityOptions();
+                for (int i = 0; i < qualities.size(); ++i)
+                    encoding.addItem (qualities[i], i + 1);
+                encoding.setSelectedId (5);
+            }
+        }
+
+        void chooseOutputDirectory()
+        {
+            auto chooser = std::make_shared<juce::FileChooser> ("Choose export folder", outputDirectory);
+            juce::Component::SafePointer<ExportOptionsComponent> component (this);
+            chooser->launchAsync (juce::FileBrowserComponent::openMode
+                                  | juce::FileBrowserComponent::canSelectDirectories,
+                                  [component, chooser] (const juce::FileChooser& fileChooser)
+            {
+                if (component != nullptr && fileChooser.getResult().isDirectory())
+                {
+                    component->outputDirectory = fileChooser.getResult();
+                    component->repaint (0, 166, 230, 24);
+                }
+            });
+        }
+
+        void exportFile()
+        {
+            const auto name = fileName.getText().trim();
+            if (name.isEmpty())
+            {
+                fileName.grabKeyboardFocus();
+                return;
+            }
+
+            const auto extension = format.getSelectedId() == 1 ? ".wav" : ".ogg";
+            const auto target = outputDirectory.getChildFile (name).withFileExtension (extension);
+
+            if (! target.existsAsFile())
+            {
+                performExport (target);
+                return;
+            }
+
+            juce::Component::SafePointer<ExportOptionsComponent> component (this);
+            showStyledConfirm (getLookAndFeel(), juce::MessageBoxIconType::WarningIcon,
+                               "File Already Exists",
+                               "\"" + target.getFileName() + "\" already exists. Replace it?",
+                               this, [component, target]
+            {
+                if (component != nullptr)
+                    component->performExport (target);
+            });
+        }
+
+        void performExport (const juce::File& target)
+        {
+            juce::PropertiesFile settings (getExportSettingsOptions());
+            settings.setValue ("exportFormat", format.getSelectedId());
+            settings.setValue ("exportSampleRate", sampleRate.getSelectedId());
+            settings.setValue ("exportEncoding", encoding.getSelectedId());
+            settings.setValue ("exportDirectory", outputDirectory.getFullPathName());
+
+            onExport (format.getSelectedId(), sampleRate.getSelectedId(), encoding.getSelectedId(), target);
+            closeDialog();
+        }
+
+        void closeDialog()
+        {
+            if (auto* dialog = findParentComponentOfClass<juce::DialogWindow>())
+                dialog->exitModalState (0);
+        }
+
+        ExportCallback onExport;
+        juce::File outputDirectory;
+        juce::ComboBox format, sampleRate, encoding;
+        juce::TextEditor fileName;
+        juce::TextButton chooseFolder, cancel, exportButton;
     };
 
     // A MidiKeyboardComponent that shows the full 88-key range, highlights the
@@ -237,6 +472,19 @@ SfxrVstiAudioProcessorEditor::~SfxrVstiAudioProcessorEditor()
     setLookAndFeel (nullptr);
 }
 
+void SfxrVstiAudioProcessorEditor::parentHierarchyChanged()
+{
+    if (configuredStandaloneTitleBar || ! juce::JUCEApplicationBase::isStandaloneApp())
+        return;
+
+    if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
+    {
+        window->setUsingNativeTitleBar (true);
+        window->setContentComponentSize (880, 700);
+        configuredStandaloneTitleBar = true;
+    }
+}
+
 void SfxrVstiAudioProcessorEditor::paint (juce::Graphics& g)
 {
     g.fillAll (kBg);
@@ -253,6 +501,7 @@ void SfxrVstiAudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (kDivider);
     g.drawLine (128.0f, 36.0f, 128.0f, 700.0f);
     g.drawLine (12.0f, 234.0f, 122.0f, 234.0f);
+    g.drawLine (12.0f, 318.0f, 122.0f, 318.0f);
 
     // divider above the waveform display
     g.setColour (kDivider);
@@ -376,11 +625,17 @@ void SfxrVstiAudioProcessorEditor::buildInterface()
         gy += 24;
     };
 
-    addActionButton ("PLAY SOUND",  [this] { audioProcessor.playPreview(); });
-    addActionButton ("RANDOMIZE",   [this] { randomize(); });
     addActionButton ("MUTATE",      [this] { mutate(); });
-    addActionButton ("LOAD SOUND",  [this] { loadSfs(); });
-    addActionButton ("SAVE SOUND",  [this] { saveSfs(); });
+    addActionButton ("RANDOMIZE",   [this] { randomize(); });
+    addActionButton ("PLAY SOUND",  [this] { audioProcessor.playPreview(); });
+
+    gy += 12;
+
+    addActionButton ("LOAD CONFIG", [this] { loadSfs(); });
+    addActionButton ("SAVE CONFIG", [this] { saveSfs(); });
+
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+        addActionButton ("EXPORT AUDIO", [this] { exportAudio(); });
 
     // ---- manual settings (right) ----
     addSectionHeader ("MANUAL SETTINGS", 140, 40);
@@ -484,10 +739,10 @@ void SfxrVstiAudioProcessorEditor::loadSfs()
         if (SfxrPresetFile::load (result, p))
             audioProcessor.applyParams (p);
         else
-            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
-                                                     "Load Failed",
-                                                     "Could not load \"" + result.getFileName()
-                                                         + "\". The file may be corrupted or not a valid .sfs sound.");
+            showStyledAlert (*lookAndFeel, juce::MessageBoxIconType::WarningIcon,
+                            "Load Failed",
+                            "Could not load \"" + result.getFileName()
+                                + "\". The file may be corrupted or not a valid .sfs sound.", this);
     });
 }
 
@@ -507,8 +762,52 @@ void SfxrVstiAudioProcessorEditor::saveSfs()
 
         const auto target = result.withFileExtension (".sfs");
         if (! SfxrPresetFile::save (target, audioProcessor.readParams()))
-            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
-                                                     "Save Failed",
-                                                     "Could not save \"" + target.getFileName() + "\".");
+            showStyledAlert (*lookAndFeel, juce::MessageBoxIconType::WarningIcon,
+                            "Save Failed",
+                            "Could not save \"" + target.getFileName() + "\".", this);
     });
+}
+
+void SfxrVstiAudioProcessorEditor::exportAudio()
+{
+    juce::Component::SafePointer<SfxrVstiAudioProcessorEditor> editor (this);
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = "Export Audio";
+    options.dialogBackgroundColour = kBg;
+    options.content.setOwned (new ExportOptionsComponent (
+        [editor] (int formatId, int sampleRateId, int encodingId, const juce::File& target)
+        {
+            if (editor != nullptr)
+                editor->exportAudio (formatId, sampleRateId, encodingId, target);
+        }));
+    options.componentToCentreAround = this;
+    options.useNativeTitleBar = true;
+    options.resizable = false;
+
+    if (auto* dialog = options.launchAsync())
+        dialog->setLookAndFeel (lookAndFeel.get());
+}
+
+void SfxrVstiAudioProcessorEditor::exportAudio (int formatId, int sampleRateId, int encodingId,
+                                                 const juce::File& target)
+{
+    SfxrAudioExporter::Options options;
+    options.format = formatId == 1
+                   ? SfxrAudioExporter::Format::wav : SfxrAudioExporter::Format::ogg;
+    options.sampleRate = std::array<int, 5> { 44100, 48000, 88200, 96000, 192000 }
+                         [(size_t) (sampleRateId - 1)];
+    options.wavBitDepth = encodingId;
+    options.oggQualityIndex = encodingId - 1;
+    const auto params = audioProcessor.readParams();
+    const bool mono = audioProcessor.readBoolParam (ParamID::mono);
+    const bool oneShot = audioProcessor.readBoolParam (ParamID::one_shot);
+
+    const auto audio = SfxrAudioExporter::renderPreview (params, mono, oneShot, options.sampleRate);
+    juce::String errorMessage;
+
+    if (! SfxrAudioExporter::writeFile (target, audio, options, errorMessage))
+        showStyledAlert (*lookAndFeel, juce::MessageBoxIconType::WarningIcon,
+                        "Export Failed",
+                        "Could not export \"" + target.getFileName()
+                            + "\": " + errorMessage, this);
 }

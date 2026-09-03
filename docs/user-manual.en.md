@@ -80,7 +80,7 @@ The Standalone app needs no host — double-click to run it for quick auditionin
 2. Click any preset button in the **GENERATOR** column (e.g. PICKUP/COIN) to hear a randomly generated sound.
 3. Play different pitches on a MIDI keyboard (or the on-screen keyboard at the bottom).
 4. Not happy? Click **MUTATE** for a small variation, or **RANDOMIZE** for a fully random sound.
-5. Fine-tune with the sliders on the right, then click **SAVE SOUND** to save a `.sfs` file.
+5. Fine-tune with the sliders on the right, then click **SAVE CONFIG** to save a `.sfs` file.
 
 ---
 
@@ -95,10 +95,12 @@ The window is 880×700 and is divided into several regions:
 │ GENERATOR│  MANUAL SETTINGS                             │
 │ presets  │  ENVELOPE    FREQUENCY    ARPEGGIO          │
 │          │  VIBRATO     SQUARE DUTY  PHASER            │
-│ PLAY     │  REPEAT      FILTERS      VOLUME            │
+│ MUTATE   │  REPEAT      FILTERS      VOLUME            │
 │ RANDOMIZE│                                              │
-│ MUTATE   │                                              │
+│ PLAY     │                                              │
+│          │                                              │
 │ LOAD/SAVE│                                              │
+│ EXPORT   │                                              │
 ├──────────┴──────────────────────────────────────────────┤
 │                   waveform oscilloscope                 │
 ├─────────────────────────────────────────────────────────┤
@@ -217,8 +219,8 @@ The buttons on the left generate different styles of sound effects in one click 
 
 Other actions:
 
-- **RANDOMIZE**: fully randomize all parameters
 - **MUTATE**: apply small random perturbations to the current parameters
+- **RANDOMIZE**: fully randomize all parameters
 - **PLAY SOUND**: immediately audition the current sound at the root note (69)
 
 ---
@@ -249,12 +251,22 @@ The live oscilloscope above the keyboard shows the current output waveform, maki
 
 ## 8. Saving and loading .sfs files
 
-- **SAVE SOUND**: save all current parameters to a `.sfs` file
-- **LOAD SOUND**: load a `.sfs` file
+- **SAVE CONFIG**: save all current parameters to a `.sfs` file
+- **LOAD CONFIG**: load a `.sfs` file
 
 `.sfs` is byte-compatible with the original sfxr file format (version 102), so files can be exchanged with the original sfxr or jsfxr.
 
 > Note: `.sfs` only stores synthesis parameters, not plugin-level settings such as Mono / One-Shot.
+
+---
+
+### Exporting audio from Standalone
+
+Only the Standalone app displays **EXPORT AUDIO**. Choose `WAV` or `OGG`, an output sample rate (44.1 / 48 / 88.2 / 96 / 192 kHz), then select a WAV bit depth (16-bit PCM, 24-bit PCM, or 32-bit float) or an OGG bitrate.
+
+Export renders the current sound offline as a mono, full-velocity root note (MIDI note 69); the output sample rate is independent of the audio device. With ONE-SHOT enabled, rendering stops when the sound ends naturally. With ONE-SHOT disabled, it produces a fixed 10-second file to prevent an unbounded export.
+
+The format, sample rate, bit depth/bitrate, and export folder are remembered for next time. If the target file already exists, you'll be asked to confirm before it's replaced.
 
 ---
 

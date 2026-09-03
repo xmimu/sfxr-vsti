@@ -80,7 +80,7 @@ Standalone 应用无需宿主，双击即可运行，用于快速试听。
 2. 点击左侧 **GENERATOR** 列的任意预设按钮（如 PICKUP/COIN），立即听到一个随机生成的声音。
 3. 用 MIDI 键盘（或底部虚拟键盘）演奏不同音高。
 4. 不满意时点击 **MUTATE** 微调，或 **RANDOMIZE** 完全随机。
-5. 用右侧滑条精调参数，点 **SAVE SOUND** 保存为 `.sfs` 文件。
+5. 用右侧滑条精调参数，点 **SAVE CONFIG** 保存为 `.sfs` 文件。
 
 ---
 
@@ -95,10 +95,12 @@ Standalone 应用无需宿主，双击即可运行，用于快速试听。
 │ GENERATOR│  MANUAL SETTINGS                             │
 │ 预设类别  │  ENVELOPE    FREQUENCY    ARPEGGIO          │
 │          │  VIBRATO     SQUARE DUTY  PHASER            │
-│ PLAY     │  REPEAT      FILTERS      VOLUME            │
+│ MUTATE   │  REPEAT      FILTERS      VOLUME            │
 │ RANDOMIZE│                                              │
-│ MUTATE   │                                              │
+│ PLAY     │                                              │
+│          │                                              │
 │ LOAD/SAVE│                                              │
+│ EXPORT   │                                              │
 ├──────────┴──────────────────────────────────────────────┤
 │                   波形示波器                             │
 ├─────────────────────────────────────────────────────────┤
@@ -217,8 +219,8 @@ Standalone 应用无需宿主，双击即可运行，用于快速试听。
 
 其他操作：
 
-- **RANDOMIZE**：完全随机化所有参数
 - **MUTATE**：在当前参数基础上做小幅随机扰动
+- **RANDOMIZE**：完全随机化所有参数
 - **PLAY SOUND**：立即以根音（note 69）试听当前声音
 
 ---
@@ -249,12 +251,22 @@ Standalone 应用无需宿主，双击即可运行，用于快速试听。
 
 ## 8. 保存与加载 .sfs 文件
 
-- **SAVE SOUND**：将当前全部参数保存为 `.sfs` 文件
-- **LOAD SOUND**：加载 `.sfs` 文件
+- **SAVE CONFIG**：将当前全部参数保存为 `.sfs` 文件
+- **LOAD CONFIG**：加载 `.sfs` 文件
 
 `.sfs` 与原版 sfxr 的文件格式字节兼容（版本 102），可与原版 sfxr 或 jsfxr 等工具互用。
 
 > 注意：`.sfs` 仅保存合成参数，不包含 Mono / One-Shot 等插件级设置。
+
+---
+
+### Standalone 导出音频
+
+仅 Standalone 应用显示 **EXPORT AUDIO**。选择 `WAV` 或 `OGG`、输出采样率（44.1 / 48 / 88.2 / 96 / 192 kHz），再选择 WAV 位深（16-bit PCM、24-bit PCM 或 32-bit float）或 OGG 比特率。
+
+导出会以根音（MIDI note 69）、满力度离线渲染当前声音，生成单声道文件；输出采样率不受当前音频设备设置影响。开启 ONE-SHOT 时，声音自然结束后停止写入；关闭 ONE-SHOT 时，为防止无限持续，文件固定为 10 秒。
+
+格式、采样率、位深/比特率与导出目录会记住供下次使用。若目标文件已存在，会先弹窗确认是否替换。
 
 ---
 
