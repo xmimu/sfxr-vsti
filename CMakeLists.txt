@@ -1,10 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(SfxrVsti
-    VERSION 1.2.0
-    DESCRIPTION "Retro video-game sound-effect synthesizer (a port of sfxr) as a VST3/AU/Standalone plugin"
-    HOMEPAGE_URL https://github.com/xmimu/sfxr-vsti
-)
+project(SfxrVsti VERSION 1.2.0 DESCRIPTION "Retro video-game sound-effect synthesizer (a port of sfxr) as a VST3/AU/Standalone plugin" HOMEPAGE_URL https://github.com/xmimu/sfxr-vsti)
 
 enable_testing()
 
