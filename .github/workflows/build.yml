@@ -122,6 +122,27 @@ jobs:
           mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
           cp -R build/SfxrVsti_artefacts/Release/AU/*.component "$HOME/Library/Audio/Plug-Ins/Components/"
           pluginkit -a "$HOME/Library/Audio/Plug-Ins/Components/SfxrVsti.component"
+
+          # Audio Component discovery is driven by AudioComponentRegistrar's
+          # cache, which only rescans ~/Library/Audio/Plug-Ins/Components when
+          # it (re)starts. Killing it forces a rescan, but that rescan is
+          # asynchronous, so poll `auval -a` until the freshly copied
+          # component actually shows up. Without this, auvaltool can run
+          # before discovery finishes and report "didn't find the component"
+          # even though the bundle itself is valid.
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          found=0
+          for i in $(seq 1 30); do
+            if auval -a 2>/dev/null | awk '$1 == "aumu" && $2 == "Vsti" && $3 == "Sfxr" { f=1 } END { exit !f }'; then
+              found=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$found" -ne 1 ]; then
+            echo "AU component did not appear in auval -a inventory after waiting" >&2
+          fi
+
           auvaltool -v aumu Vsti Sfxr || { echo "auval validation failed"; exit 1; }
 
       # E1: Linux executables lose their permission bits when uploaded as loose
