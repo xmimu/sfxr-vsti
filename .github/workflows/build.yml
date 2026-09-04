@@ -233,13 +233,14 @@ jobs:
                 tar -tzf "$d/$f" | grep -qx 'SOURCE.txt' && echo "  has SOURCE.txt"
                 mkdir -p "/tmp/pkg-$name" && tar -xzf "$d/$f" -C "/tmp/pkg-$name"
                 test -x "/tmp/pkg-$name/Standalone/SfxrVsti" && echo "  Standalone is executable"
+                mv "$d/$f" "$name.tar.gz"
                 ;;
               *.zip)
                 unzip -l "$d/$f" | grep -q 'LICENSE' && echo "  has LICENSE"
                 unzip -l "$d/$f" | grep -q 'THIRD_PARTY_NOTICES.md' && echo "  has THIRD_PARTY_NOTICES.md"
+                mv "$d/$f" "$name.zip"
                 ;;
             esac
-            mv "$d/$f" "$name.tar.gz" 2>/dev/null || mv "$d/$f" "$name.zip"
             rmdir "$d" 2>/dev/null || true
           done
           ls -la
