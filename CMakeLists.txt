@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(SfxrVsti VERSION 1.2.0 DESCRIPTION "Retro video-game sound-effect synthesizer (a port of sfxr) as a VST3/AU/Standalone plugin" HOMEPAGE_URL https://github.com/xmimu/sfxr-vsti)
+project(SfxrVsti VERSION 1.2.1 DESCRIPTION "Retro video-game sound-effect synthesizer (a port of sfxr) as a VST3/AU/Standalone plugin" HOMEPAGE_URL https://github.com/xmimu/sfxr-vsti)
 
 enable_testing()
 
@@ -48,12 +48,18 @@ juce_add_plugin(
     NEEDS_MIDI_INPUT        TRUE
     NEEDS_MIDI_OUTPUT       FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    # JUCE enumerates Bluetooth audio and MIDI hardware from the standalone
+    # device selector. macOS terminates apps that do this without this plist
+    # usage description (rather than merely denying access).
+    BLUETOOTH_PERMISSION_ENABLED TRUE
+    BLUETOOTH_PERMISSION_TEXT "SfxrVsti uses Bluetooth to discover audio and MIDI devices."
 )
 
 target_sources(SfxrVsti
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
+        Source/StandaloneApplication.cpp
         Source/Gui/SfxrLookAndFeel.cpp
         Source/Gui/SfxrDialogs.cpp
         Source/Gui/WaveformScope.cpp
@@ -83,7 +89,13 @@ target_link_libraries(SfxrVsti PRIVATE
 
 # We never shipped a VST2 version, so the VST3 does not need to be a drop-in
 # replacement and can use the modern parameter ID scheme.
-target_compile_definitions(SfxrVsti PRIVATE JUCE_VST3_CAN_REPLACE_VST2=0)
+target_compile_definitions(SfxrVsti PRIVATE
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    # The stock JUCE standalone app only exposes device selection through its
+    # title-bar Options button. Supply our app so it is available from Settings
+    # in the normal application menu as well.
+    JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
+)
 
 # Offline engine test suite (verifies the DSP independently of any DAW).
 juce_add_console_app(SfxrRenderTest

@@ -21,6 +21,10 @@ SfxrLookAndFeel::SfxrLookAndFeel()
     setColour (juce::TextEditor::textColourId, SfxrTheme::kTextDark);
     setColour (juce::TextEditor::outlineColourId, SfxrTheme::kDivider);
     setColour (juce::TextEditor::focusedOutlineColourId, SfxrTheme::kTextDark);
+    setColour (juce::TextEditor::highlightColourId, SfxrTheme::kBarFill);
+    setColour (juce::ListBox::backgroundColourId, SfxrTheme::kBg);
+    setColour (juce::ListBox::outlineColourId, SfxrTheme::kDivider);
+    setColour (juce::ListBox::textColourId, SfxrTheme::kTextDark);
     setColour (juce::PopupMenu::backgroundColourId, SfxrTheme::kBg);
     setColour (juce::PopupMenu::textColourId, SfxrTheme::kTextDark);
     setColour (juce::PopupMenu::highlightedBackgroundColourId, SfxrTheme::kBarFill);

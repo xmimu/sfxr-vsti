@@ -72,6 +72,10 @@ xattr -dr com.apple.quarantine "/Applications/SfxrVsti.app"
 
 Standalone 应用无需宿主，双击即可运行，用于快速试听。
 
+在菜单栏选择 **Settings → Audio & MIDI Devices...** 可选择具体的音频输入/输出设备和 MIDI 输入设备。所选设备会在下次启动时自动恢复。**Settings → 语言** 可选择跟随系统、中文或 English；设备设置面板也会随语言切换。
+
+VST3/AU 编辑器右上角的 **SETTINGS** 仅提供语言选择，不会访问或修改宿主的音频/MIDI 设备。
+
 ---
 
 ## 2. 快速上手

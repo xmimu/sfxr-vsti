@@ -17,6 +17,7 @@
 - **虚拟 MIDI 键盘**：显示 A0–C8 共 88 键，但插件只响应 C2–C6（MIDI 36–84）；范围外按键灰化禁用，根音高亮
 - **.sfs 文件兼容**：读写原版 sfxr 1.2.1 的 102 格式（只读 102，更旧的 100/101 存档会拒绝加载），参数为连续浮点、不做量化
 - **8 个出厂 program**：Init + 7 个生成器类别，暴露给宿主的预设菜单（确定性，选中同一个 program 始终得到同一个声音）
+- **中英文界面**：可跟随系统语言，或手动选择中文/English；Standalone 还可在菜单中选择音频与 MIDI 设备
 
 ## 目录结构
 
@@ -130,6 +131,7 @@ Windows CI 使用 MSVC；Linux 需 ALSA/JACK/X11 等开发库（见 `.github/wor
 - **MANUAL SETTINGS**（右）：连续参数按 ENVELOPE / FREQUENCY / VIBRATO / SQUARE DUTY / REPEAT / ARPEGGIO / PHASER / FILTERS / VOLUME 分组
 - **波形示波器**（底部）：实时显示输出波形
 - **虚拟键盘**（底部）：显示 A0–C8 共 88 键，但只有 C2–C6（MIDI 36–84）能通过点击/拖拽触发；范围外按键灰化且不响应；note 69 橙色高亮并标注 ROOT
+- **设置**：Standalone 在菜单栏的 **Settings** 中选择音频/MIDI 设备和语言；VST3/AU 右上角的 **SETTINGS** 仅提供语言选择，不会改动宿主的音频/MIDI 设备
 
 ### 有效音符范围
 

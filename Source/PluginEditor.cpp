@@ -6,6 +6,7 @@
 #include "Gui/SfxrMidiKeyboard.h"
 #include "Gui/ExportOptionsComponent.h"
 #include "Gui/SfxrDialogs.h"
+#include "Gui/SfxrLocalization.h"
 #include "SfxrEngine/SfxrPresets.h"
 #include "SfxrEngine/SfxrAudioExporter.h"
 
@@ -16,6 +17,28 @@ namespace
     // layout so the fixed pixel UI stays identical.
     constexpr int kEditorWidth  = 880;
     constexpr int kEditorHeight = 700;
+
+    juce::String tr (const char* english, const char* chinese)
+    {
+        return SfxrLocalization::text (english, chinese);
+    }
+
+    juce::String presetName (PresetCategory category)
+    {
+        switch (category)
+        {
+            case PresetCategory::PickupCoin: return tr ("PICKUP/COIN", "拾取/金币");
+            case PresetCategory::LaserShoot: return tr ("LASER/SHOOT", "激光/射击");
+            case PresetCategory::Explosion:  return tr ("EXPLOSION", "爆炸");
+            case PresetCategory::Powerup:    return tr ("POWERUP", "强化");
+            case PresetCategory::HitHurt:    return tr ("HIT/HURT", "击中/受伤");
+            case PresetCategory::Jump:       return tr ("JUMP", "跳跃");
+            case PresetCategory::BlipSelect: return tr ("BLIP/SELECT", "提示/选择");
+            case PresetCategory::Count:      break;
+        }
+
+        return {};
+    }
 
     // sfxr palette lives in SfxrTheme.h, shared with the LookAndFeel and the
     // export dialog.
@@ -32,6 +55,7 @@ SfxrVstiAudioProcessorEditor::SfxrVstiAudioProcessorEditor (SfxrVstiAudioProcess
     actions = std::make_unique<SfxrEditorActions> (p);
 
     apvts.addParameterListener (juce::String (ParamID::wave_type), this);
+    SfxrLocalization::changes().addChangeListener (this);
 
     buildInterface();
 
@@ -43,6 +67,7 @@ SfxrVstiAudioProcessorEditor::~SfxrVstiAudioProcessorEditor()
 {
     cancelPendingUpdate();
     apvts.removeParameterListener (juce::String (ParamID::wave_type), this);
+    SfxrLocalization::changes().removeChangeListener (this);
     setLookAndFeel (nullptr);
 }
 
@@ -82,8 +107,8 @@ void SfxrVstiAudioProcessorEditor::paint (juce::Graphics& g)
     g.drawLine (8.0f, 480.0f, (float) (kEditorWidth - 8), 480.0f);
 
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-    g.drawText ("WAVEFORM", 16, 466, 120, 14, juce::Justification::centredLeft);
-    g.drawText ("MIDI KEYBOARD", 16, 590, 160, 14, juce::Justification::centredLeft);
+    g.drawText (tr ("WAVEFORM", "波形"), 16, 466, 120, 14, juce::Justification::centredLeft);
+    g.drawText (tr ("MIDI KEYBOARD", "MIDI 键盘"), 16, 590, 160, 14, juce::Justification::centredLeft);
 }
 
 void SfxrVstiAudioProcessorEditor::parameterChanged (const juce::String& id, float)
@@ -98,6 +123,14 @@ void SfxrVstiAudioProcessorEditor::parameterChanged (const juce::String& id, flo
 void SfxrVstiAudioProcessorEditor::handleAsyncUpdate()
 {
     updateWaveButtons();
+    repaint();
+}
+
+void SfxrVstiAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    clearInterface();
+    buildInterface();
+    repaint();
 }
 
 void SfxrVstiAudioProcessorEditor::addSectionHeader (const juce::String& text, int x, int y)
@@ -177,33 +210,65 @@ void SfxrVstiAudioProcessorEditor::buildInterface()
     updateWaveButtons();
 }
 
+void SfxrVstiAudioProcessorEditor::clearInterface()
+{
+    sliderAttachments.clear();
+    buttonAttachments.clear();
+    widgets.clear();
+    waveformScope.reset();
+    midiKeyboard.reset();
+    std::fill (std::begin (waveButtons), std::end (waveButtons), nullptr);
+}
+
+void SfxrVstiAudioProcessorEditor::showLanguageMenu (juce::Component& target)
+{
+    juce::PopupMenu menu;
+    const auto language = SfxrLocalization::selectedLanguage();
+    menu.addItem (1, tr ("Automatic", "自动"), true, language == SfxrLocalization::Language::automatic);
+    menu.addItem (2, tr ("Chinese", "中文"), true, language == SfxrLocalization::Language::chinese);
+    menu.addItem (3, "English", true, language == SfxrLocalization::Language::english);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
+                        [] (int id)
+    {
+        if (id >= 1 && id <= 3)
+            SfxrLocalization::setLanguage (static_cast<SfxrLocalization::Language> (id - 1));
+    });
+}
+
 void SfxrVstiAudioProcessorEditor::buildTopBar()
 {
-    addWaveButton ("SQUAREWAVE", 0, 150, 8);
-    addWaveButton ("SAWTOOTH",   1, 256, 8);
-    addWaveButton ("SINEWAVE",   2, 362, 8);
-    addWaveButton ("NOISE",      3, 468, 8);
+    addWaveButton (tr ("SQUAREWAVE", "方波"), 0, 150, 8);
+    addWaveButton (tr ("SAWTOOTH", "锯齿波"), 1, 256, 8);
+    addWaveButton (tr ("SINEWAVE", "正弦波"), 2, 362, 8);
+    addWaveButton (tr ("NOISE", "噪声"), 3, 468, 8);
 
-    auto* monoButton = own (new juce::ToggleButton ("MONO"));
+    auto* monoButton = own (new juce::ToggleButton (tr ("MONO", "单音")));
     monoButton->setBounds (580, 8, 80, 22);
     buttonAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         apvts, ParamID::mono, *monoButton));
 
-    auto* oneShotButton = own (new juce::ToggleButton ("ONE-SHOT"));
+    auto* oneShotButton = own (new juce::ToggleButton (tr ("ONE-SHOT", "单次")));
     oneShotButton->setBounds (668, 8, 90, 22);
     buttonAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         apvts, ParamID::one_shot, *oneShotButton));
+
+    if (! juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        auto* settingsButton = own (new juce::TextButton (tr ("SETTINGS", "设置")));
+        settingsButton->setBounds (768, 8, 100, 22);
+        settingsButton->onClick = [this, settingsButton] { showLanguageMenu (*settingsButton); };
+    }
 }
 
 void SfxrVstiAudioProcessorEditor::buildGeneratorColumn()
 {
-    addSectionHeader ("GENERATOR", 12, 40);
+    addSectionHeader (tr ("GENERATOR", "生成器"), 12, 40);
 
     int gy = 62;
     for (int i = 0; i < (int) PresetCategory::Count; i++)
     {
         const auto cat = (PresetCategory) i;
-        auto* b = own (new juce::TextButton (presetCategoryName (cat)));
+        auto* b = own (new juce::TextButton (presetName (cat)));
         b->setBounds (12, gy, 110, 22);
         b->onClick = [this, cat] { actions->generate (cat); };
         gy += 24;
@@ -219,64 +284,64 @@ void SfxrVstiAudioProcessorEditor::buildGeneratorColumn()
         gy += 24;
     };
 
-    addActionButton ("MUTATE",      [this] { actions->mutate(); });
-    addActionButton ("RANDOMIZE",   [this] { actions->randomize(); });
-    addActionButton ("PLAY SOUND",  [this] { audioProcessor.playPreview(); });
+    addActionButton (tr ("MUTATE", "变异"), [this] { actions->mutate(); });
+    addActionButton (tr ("RANDOMIZE", "随机"), [this] { actions->randomize(); });
+    addActionButton (tr ("PLAY SOUND", "播放声音"), [this] { audioProcessor.playPreview(); });
 
     gy += 12;
 
-    addActionButton ("LOAD CONFIG", [this] { loadSfs(); });
-    addActionButton ("SAVE CONFIG", [this] { saveSfs(); });
+    addActionButton (tr ("LOAD CONFIG", "载入配置"), [this] { loadSfs(); });
+    addActionButton (tr ("SAVE CONFIG", "保存配置"), [this] { saveSfs(); });
 
     if (juce::JUCEApplicationBase::isStandaloneApp())
-        addActionButton ("EXPORT AUDIO", [this] { exportAudio(); });
+        addActionButton (tr ("EXPORT AUDIO", "导出音频"), [this] { exportAudio(); });
 }
 
 void SfxrVstiAudioProcessorEditor::buildSettingsColumns()
 {
-    addSectionHeader ("MANUAL SETTINGS", 140, 40);
+    addSectionHeader (tr ("MANUAL SETTINGS", "手动设置"), 140, 40);
 
-    addSectionHeader ("ENVELOPE", 140, 68);
-    addSlider (ParamID::env_attack,  "ATTACK TIME",   140, 88, 130);
-    addSlider (ParamID::env_sustain, "SUSTAIN TIME",  140, 108, 130);
-    addSlider (ParamID::env_punch,   "SUSTAIN PUNCH", 140, 128, 130);
-    addSlider (ParamID::env_decay,   "DECAY TIME",    140, 148, 130);
+    addSectionHeader (tr ("ENVELOPE", "包络"), 140, 68);
+    addSlider (ParamID::env_attack, tr ("ATTACK TIME", "起音时间"), 140, 88, 130);
+    addSlider (ParamID::env_sustain, tr ("SUSTAIN TIME", "延音时间"), 140, 108, 130);
+    addSlider (ParamID::env_punch, tr ("SUSTAIN PUNCH", "延音力度"), 140, 128, 130);
+    addSlider (ParamID::env_decay, tr ("DECAY TIME", "衰减时间"), 140, 148, 130);
 
-    addSectionHeader ("VIBRATO", 140, 176);
-    addSlider (ParamID::vib_strength, "DEPTH", 140, 196, 130);
-    addSlider (ParamID::vib_speed,    "SPEED", 140, 216, 130);
-    addSlider (ParamID::vib_delay,    "DELAY", 140, 236, 130);
+    addSectionHeader (tr ("VIBRATO", "颤音"), 140, 176);
+    addSlider (ParamID::vib_strength, tr ("DEPTH", "深度"), 140, 196, 130);
+    addSlider (ParamID::vib_speed, tr ("SPEED", "速度"), 140, 216, 130);
+    addSlider (ParamID::vib_delay, tr ("DELAY", "延迟"), 140, 236, 130);
 
-    addSectionHeader ("FREQUENCY", 384, 68);
-    addSlider (ParamID::base_freq,  "START FREQ",  384, 88, 130);
-    addSlider (ParamID::freq_limit, "MIN FREQ",    384, 108, 130);
-    addSlider (ParamID::freq_ramp,  "SLIDE",       384, 128, 130);
-    addSlider (ParamID::freq_dramp, "DELTA SLIDE", 384, 148, 130);
+    addSectionHeader (tr ("FREQUENCY", "频率"), 384, 68);
+    addSlider (ParamID::base_freq, tr ("START FREQ", "起始频率"), 384, 88, 130);
+    addSlider (ParamID::freq_limit, tr ("MIN FREQ", "最低频率"), 384, 108, 130);
+    addSlider (ParamID::freq_ramp, tr ("SLIDE", "滑音"), 384, 128, 130);
+    addSlider (ParamID::freq_dramp, tr ("DELTA SLIDE", "滑音变化"), 384, 148, 130);
 
-    addSectionHeader ("SQUARE DUTY", 384, 176);
-    addSlider (ParamID::duty,      "DUTY",       384, 196, 130);
-    addSlider (ParamID::duty_ramp, "DUTY SWEEP",  384, 216, 130);
+    addSectionHeader (tr ("SQUARE DUTY", "方波占空比"), 384, 176);
+    addSlider (ParamID::duty, tr ("DUTY", "占空比"), 384, 196, 130);
+    addSlider (ParamID::duty_ramp, tr ("DUTY SWEEP", "占空比变化"), 384, 216, 130);
 
-    addSectionHeader ("REPEAT", 384, 244);
-    addSlider (ParamID::repeat_speed, "REPEAT SPEED", 384, 264, 130);
+    addSectionHeader (tr ("REPEAT", "重复"), 384, 244);
+    addSlider (ParamID::repeat_speed, tr ("REPEAT SPEED", "重复速度"), 384, 264, 130);
 
-    addSectionHeader ("ARPEGGIO", 628, 68);
-    addSlider (ParamID::arp_mod,   "CHANGE AMOUNT", 628, 88, 130);
-    addSlider (ParamID::arp_speed, "CHANGE SPEED",  628, 108, 130);
+    addSectionHeader (tr ("ARPEGGIO", "琶音"), 628, 68);
+    addSlider (ParamID::arp_mod, tr ("CHANGE AMOUNT", "变化幅度"), 628, 88, 130);
+    addSlider (ParamID::arp_speed, tr ("CHANGE SPEED", "变化速度"), 628, 108, 130);
 
-    addSectionHeader ("PHASER", 628, 136);
-    addSlider (ParamID::pha_offset, "OFFSET", 628, 156, 130);
-    addSlider (ParamID::pha_ramp,   "SWEEP",  628, 176, 130);
+    addSectionHeader (tr ("PHASER", "相位器"), 628, 136);
+    addSlider (ParamID::pha_offset, tr ("OFFSET", "偏移"), 628, 156, 130);
+    addSlider (ParamID::pha_ramp, tr ("SWEEP", "扫描"), 628, 176, 130);
 
-    addSectionHeader ("FILTERS", 628, 204);
-    addSlider (ParamID::lpf_freq,      "LP CUTOFF",    628, 224, 130);
-    addSlider (ParamID::lpf_ramp,      "LP SWEEP",     628, 244, 130);
-    addSlider (ParamID::lpf_resonance, "LP RESONANCE", 628, 264, 130);
-    addSlider (ParamID::hpf_freq,      "HP CUTOFF",    628, 284, 130);
-    addSlider (ParamID::hpf_ramp,      "HP SWEEP",     628, 304, 130);
+    addSectionHeader (tr ("FILTERS", "滤波器"), 628, 204);
+    addSlider (ParamID::lpf_freq, tr ("LP CUTOFF", "低通截止"), 628, 224, 130);
+    addSlider (ParamID::lpf_ramp, tr ("LP SWEEP", "低通扫描"), 628, 244, 130);
+    addSlider (ParamID::lpf_resonance, tr ("LP RESONANCE", "低通共振"), 628, 264, 130);
+    addSlider (ParamID::hpf_freq, tr ("HP CUTOFF", "高通截止"), 628, 284, 130);
+    addSlider (ParamID::hpf_ramp, tr ("HP SWEEP", "高通扫描"), 628, 304, 130);
 
-    addSectionHeader ("VOLUME", 384, 420);
-    addSlider (ParamID::master_vol, "OUTPUT LEVEL", 384, 440, 240);
+    addSectionHeader (tr ("VOLUME", "音量"), 384, 420);
+    addSlider (ParamID::master_vol, tr ("OUTPUT LEVEL", "输出电平"), 384, 440, 240);
 }
 
 void SfxrVstiAudioProcessorEditor::buildWaveformArea()
