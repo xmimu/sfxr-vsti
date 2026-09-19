@@ -72,6 +72,10 @@ Copy `SfxrVsti.vst3` to `~/.vst3/`.
 
 The Standalone app needs no host — double-click to run it for quick auditioning.
 
+Choose **Settings → Audio & MIDI Devices...** from the menu bar to select the exact audio input/output devices and MIDI input devices. Your choices are restored the next time the app starts. **Settings → Language** lets you choose Automatic, Chinese, or English; the device panel follows the selected language.
+
+The **SETTINGS** button in the VST3/AU editor provides language selection only. It never accesses or changes the host's audio/MIDI devices.
+
 ---
 
 ## 2. Quick start

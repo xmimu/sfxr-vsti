@@ -4,6 +4,16 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.1] - 2026-09-19
+
+### Added
+
+- Standalone 新增音频/MIDI 设备设置、语言菜单与中英文界面切换；VST3/AU 编辑器仅提供语言设置。
+
+### Fixed
+
+- macOS 蓝牙 MIDI 设备扫描所需的隐私声明，以及设备设置面板的中文本地化。
+
 ## [1.2.0] - 2026-09-04
 
 ### Fixed

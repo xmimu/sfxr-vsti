@@ -1,5 +1,6 @@
 # Build output
 build/
+.cache/
 
 # macOS
 .DS_Store

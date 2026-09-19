@@ -17,6 +17,7 @@ A JUCE instrument plugin built on the [sfxr](http://www.drpetter.se/project_sfxr
 - **On-screen MIDI keyboard**: displays all 88 keys from A0 to C8, but the plugin responds only to C2-C6 (MIDI 36-84); other keys are disabled and the root is highlighted
 - **.sfs file compatibility**: reads and writes the original sfxr 1.2.1 version-102 format (version 102 only; older 100/101 archives are rejected on load), with parameters kept as continuous floats rather than quantised
 - **8 factory programs**: Init plus one per generator category, exposed in the host's preset menu (deterministic -- the same program always gives the same sound)
+- **Bilingual interface**: follows the system language or can be set to Chinese/English manually; Standalone also provides audio and MIDI device selection from its menu
 
 ## Directory structure
 
@@ -130,6 +131,7 @@ Windows CI uses MSVC; Linux requires the ALSA/JACK/X11 development libraries lis
 - **MANUAL SETTINGS** (right): continuous parameters grouped under ENVELOPE / FREQUENCY / VIBRATO / SQUARE DUTY / REPEAT / ARPEGGIO / PHASER / FILTERS / VOLUME
 - **Waveform oscilloscope** (bottom): live output waveform
 - **Virtual keyboard** (bottom): displays all 88 keys from A0 to C8, but only C2-C6 (MIDI 36-84) respond to click/drag; other keys are disabled; note 69 is highlighted in orange and labelled ROOT
+- **Settings**: Standalone's **Settings** menu provides audio/MIDI device and language selection. The **SETTINGS** button in VST3/AU provides language selection only and never changes the host's audio/MIDI devices.
 
 ### Valid note range
 

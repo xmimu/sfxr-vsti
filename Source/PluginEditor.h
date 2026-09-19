@@ -14,7 +14,8 @@ class SfxrMidiKeyboardComponent;
 // file choosers and export window it launches.
 class SfxrVstiAudioProcessorEditor : public juce::AudioProcessorEditor,
                                      private juce::AudioProcessorValueTreeState::Listener,
-                                     private juce::AsyncUpdater
+                                     private juce::AsyncUpdater,
+                                     private juce::ChangeListener
 {
 public:
     explicit SfxrVstiAudioProcessorEditor (SfxrVstiAudioProcessor&);
@@ -26,6 +27,7 @@ public:
 
 private:
     void handleAsyncUpdate() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void parameterChanged (const juce::String& parameterID, float newValue) override;
 
     // ---- view construction ----
@@ -35,6 +37,8 @@ private:
     void buildSettingsColumns();
     void buildWaveformArea();
     void buildKeyboardArea();
+    void clearInterface();
+    void showLanguageMenu (juce::Component& target);
 
     void addSectionHeader (const juce::String& text, int x, int y);
     juce::Slider* addSlider (const juce::String& paramID, const juce::String& label,
